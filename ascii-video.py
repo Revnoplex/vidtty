@@ -15,7 +15,7 @@ import cv2
 import os
 
 
-def exception_handler(exception_type: type[BaseException], exception: BaseException,
+def exception_handler(exception_type: BaseException, exception: BaseException,
                       exception_traceback: Union[TracebackType, list[traceback.FrameSummary]]):
     if exception_type in [KeyboardInterrupt, EOFError, SystemExit]:
         return
