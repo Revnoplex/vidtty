@@ -9,24 +9,37 @@ import sys
 import ctypes
 import datetime
 from types import TracebackType
-from typing import Union
+from typing import Union, Any
 from PIL import Image
 import cv2
 import os
 
-
-def exception_handler(exception_type: BaseException, exception: BaseException,
-                      exception_traceback: Union[TracebackType, list[traceback.FrameSummary]]):
-    if exception_type in [KeyboardInterrupt, EOFError, SystemExit]:
-        return
-    else:
-        print("Traceback (most recent call last):")
-        if isinstance(exception_traceback, TracebackType):
-            traceback.print_tb(exception_traceback)
+if sys.version_info[1] < 10:
+    def exception_handler(exception_type: BaseException, exception: BaseException,
+                          exception_traceback: Union[Any, list[traceback.FrameSummary]]):
+        if exception_type in [KeyboardInterrupt, EOFError, SystemExit]:
+            return
         else:
-            traceback.print_list(exception_traceback)
-        print(f'{exception_type.__name__}: {exception}', file=sys.stderr)
-        exit(1)
+            print("Traceback (most recent call last):")
+            if isinstance(exception_traceback, TracebackType):
+                traceback.print_tb(exception_traceback)
+            else:
+                traceback.print_list(exception_traceback)
+            print(f'{exception_type.__name__}: {exception}', file=sys.stderr)
+            exit(1)
+else:
+    def exception_handler(exception_type: type[BaseException], exception: BaseException,
+                          exception_traceback: Union[TracebackType, list[traceback.FrameSummary]]):
+        if exception_type in [KeyboardInterrupt, EOFError, SystemExit]:
+            return
+        else:
+            print("Traceback (most recent call last):")
+            if isinstance(exception_traceback, TracebackType):
+                traceback.print_tb(exception_traceback)
+            else:
+                traceback.print_list(exception_traceback)
+            print(f'{exception_type.__name__}: {exception}', file=sys.stderr)
+            exit(1)
 
 
 sys.excepthook = exception_handler
