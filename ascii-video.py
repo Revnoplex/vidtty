@@ -16,7 +16,7 @@ import os
 
 if sys.version_info[1] < 10:
     def exception_handler(exception_type: BaseException, exception: BaseException,
-                          exception_traceback: Union[Any, list[traceback.FrameSummary]]):
+                          exception_traceback: Union[TracebackType, list]):
         if exception_type in [KeyboardInterrupt, EOFError, SystemExit]:
             return
         else:
