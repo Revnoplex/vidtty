@@ -59,23 +59,25 @@ def dump_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
             resized_frame = frame.resize((terminal_columns, terminal_lines))
 
             img_data = resized_frame.getdata()
-            ascii_gradients = [' ', '.', "'", '`', '^', '"', ',', ':', ';', 'I', 'l', '!', 'i', '>', '<', '~', '+', '_', '-', '?', ']', '[', '}', '{', '1', ')', '(', '|', '\\', '/', 't', 'f', 'j', 'r', 'x', 'n', 'u', 'v', 'c', 'z', 'X', 'Y', 'U', 'J', 'C', 'L', 'Q', '0', 'O', 'Z', 'm', 'w', 'q', 'p', 'd', 'b', 'k', 'h', 'a', 'o', '*', '#', 'M', 'W', '&', '8', '%', 'B', '@', '$']
+            ascii_gradients = [' ', '.', "'", '`', '^', '"', ',', ':', ';', 'I', 'l', '!', 'i', '>', '<', '~', '+',
+                               '_', '-', '?', ']', '[', '}', '{', '1', ')', '(', '|', '\\', '/', 't', 'f', 'j', 'r',
+                               'x', 'n', 'u', 'v', 'c', 'z', 'X', 'Y', 'U', 'J', 'C', 'L', 'Q', '0', 'O', 'Z', 'm',
+                               'w', 'q', 'p', 'd', 'b', 'k', 'h', 'a', 'o', '*', '#', 'M', 'W', '&', '8', '%', 'B',
+                               '@', '$']
             frame_width = resized_frame.width
             h_line_idx = 0
             frame_list: list[list[int, list[list[str, int]]]] = []
             line = ""
             for index, pixel in enumerate(img_data):
-                if index % frame_width == 0:
+                if index % frame_width:
+                    average_pixel_gradient = sum(pixel) / 3
+                    line += ascii_gradients[int(int(average_pixel_gradient) // (255 / (len(ascii_gradients) - 1)))]
+                else:
                     if h_line_idx < terminal_lines - 1:
                         frame_list.append([h_line_idx, line])
                     h_line_idx += 1
                     line = ""
-                else:
-                    average_pixel_gradient = sum(pixel) / 3
-                    # print(average_pixel_gradient)
-                    # print(255/(len(ascii_gradients)))
-                    # print(int(average_pixel_gradient) // (255/(len(ascii_gradients)-1)))
-                    line += ascii_gradients[int(int(average_pixel_gradient) // (255/(len(ascii_gradients)-1)))]
+
             frames.put(frame_list)
             current_frame += 1
             duration = (datetime.datetime.now() - start_time).total_seconds()
