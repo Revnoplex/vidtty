@@ -1,0 +1,12 @@
+# The package names will depend on what OS you are using but may be one of the following.
+# Please install this package using your OS's package manager
+
+# arch based distros (pacman):
+python-opencv
+
+# debian based distros (apt):
+python3-opencv
+# or could be this if you installed a different version
+python3.${sub_version}-opencv
+
+# other distros could have package names simular to this
