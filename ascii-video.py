@@ -9,7 +9,7 @@ import sys
 import ctypes
 import datetime
 from types import TracebackType
-from typing import Union, Any
+from typing import Union
 from PIL import Image
 import cv2
 import os
