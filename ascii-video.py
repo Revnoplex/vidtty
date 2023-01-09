@@ -199,7 +199,7 @@ if __name__ == '__main__':
     if len(sys.argv) > 1:
         video_file = sys.argv[1]
     else:
-        print("No video file specified. Please specify one. mp4 works the best")
+        print("No video file specified. Please specify one. mp4 files works the best")
         video_file = None
         exit(1)
 
