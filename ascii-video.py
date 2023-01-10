@@ -130,7 +130,13 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
         print(f"\rDumping frame {dumped_frames.value} of {total_frames} "
               f"at a rate of {average_fps} fps. Video playback will approximately start in"
               f" {datetime.timedelta(seconds=(time_left-video_duration))}", end="")
-    interval = (1 / (frame_rate*1.03))
+
+    # todo: dynamically correct speed
+    # this is currently just a band-aid fix over a bigger wound
+    if sys.platform == "darwin":
+        interval = (1 / (frame_rate*1.03))
+    else:
+        interval = (1 / (frame_rate*1.01))
     std_scr = curses.initscr()
     curses.noecho()
     curses.cbreak()
@@ -228,5 +234,4 @@ if __name__ == '__main__':
         if child_error_state:
             exception_handler(*child_error_state)
     finally:
-        print(lag)
         p1.terminate()
