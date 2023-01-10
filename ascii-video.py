@@ -4,7 +4,7 @@ import subprocess
 import traceback
 from io import BytesIO
 import time
-from multiprocessing import Process, Queue, Value
+from multiprocessing import Manager, Process, Queue, Value
 import sys
 import ctypes
 import datetime
@@ -50,11 +50,11 @@ if os.getenv('PYGAME_HIDE_SUPPORT_PROMPT') == "hide":
 
 
 def dump_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
-                error: Queue):
+                error: Queue, video_filename: str, total_frame_count: int):
     try:
         print("beginning to dump frames...")
         current_frame = 0
-        vid = cv2.VideoCapture(video_file)
+        vid = cv2.VideoCapture(video_filename)
         avg_interval_list = []
         terminal_lines, terminal_columns = (lambda px: (px.lines, px.columns))(os.get_terminal_size())
         while True:
@@ -95,11 +95,14 @@ def dump_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
             current_frame += 1
             duration = (datetime.datetime.now() - start_time).total_seconds()
             avg_interval_list.append(duration)
-            if current_frame == total_frames:
+            if current_frame == total_frame_count:
                 break
         exit()
     except Exception as e:
         error.put((type(e), e, traceback.extract_tb(e.__traceback__)))
+
+
+lag = 0
 
 
 def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
@@ -127,13 +130,13 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
         print(f"\rDumping frame {dumped_frames.value} of {total_frames} "
               f"at a rate of {average_fps} fps. Video playback will approximately start in"
               f" {datetime.timedelta(seconds=(time_left-video_duration))}", end="")
-    interval = (1 / frame_rate)
+    interval = (1 / (frame_rate*1.03))
     std_scr = curses.initscr()
     curses.noecho()
     curses.cbreak()
     pygame.mixer.music.play()
     current_interval = interval
-    lag = 0
+    global lag
 
     try:
         for current_frame in range(total_frames):
@@ -208,11 +211,13 @@ if __name__ == '__main__':
     frame_rate = video.get(cv2.CAP_PROP_FPS)
     video_duration = (total_frames // frame_rate) + (total_frames % frame_rate) / frame_rate
     global_interval = (1 / frame_rate)
-    queue = Queue()
+    manager = Manager()
+    queue = manager.Queue()
     shared_dumped_frames = Value(ctypes.c_int, 0)
-    shared_dumping_interval = Value(ctypes.c_float, 0)
-    shared_child_error = Queue()
-    p1 = Process(target=dump_frames, args=(queue, shared_dumped_frames, shared_dumping_interval, shared_child_error,),
+    shared_dumping_interval = Value(ctypes.c_float, 1)
+    shared_child_error = manager.Queue()
+    p1 = Process(target=dump_frames, args=(queue, shared_dumped_frames, shared_dumping_interval, shared_child_error,
+                                           video_file, total_frames,),
                  name="Frame Dumper")
     try:
         p2 = Process(target=print_frames, args=(queue, shared_dumped_frames, shared_dumping_interval,
@@ -223,4 +228,5 @@ if __name__ == '__main__':
         if child_error_state:
             exception_handler(*child_error_state)
     finally:
+        print(lag)
         p1.terminate()
