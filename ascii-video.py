@@ -118,7 +118,7 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
               f"the executable is in one of your PATH directories.")
         exit()
     else:
-        pygame.mixer.music.load(audio.stdout)
+        pygame.mixer.music.load(BytesIO(audio.stdout.read()))
 
     while True:
         average_fps = 1 // dumping_interval.value
