@@ -1,4 +1,4 @@
-# ascii-video
+# Vidtty
 Displays videos in a terminal/tty using ascii characters.
 
 This program is featured in one of my YouTube videos.
