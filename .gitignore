@@ -131,3 +131,7 @@ dmypy.json
 # pycharm files
 .idea
 .idea/
+
+# ignore extra mp4 files
+*.mp4
+!fake-mr-beast-bad-apple-remix.mp4
