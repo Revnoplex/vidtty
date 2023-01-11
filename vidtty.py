@@ -190,9 +190,9 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
 
 
 if __name__ == '__main__':
-    print("ascii-video v1.0.0")
+    print("vidtty v1.0.0")
     if sys.platform not in ["linux", "darwin"]:
-        print("\033[1;33mWarning\033[0m: This version of ascii-video has only been tested to on Unix based OSes such as"
+        print("\033[1;33mWarning\033[0m: This version of vidtty has only been tested to on Unix based OSes such as"
               " Linux or MacOS. \nIf you are running this program in Windows, using cygwin is recommended. "
               "\nYou may also need to install the curses module manually."
               "\nThe behaviour of the program could be unpredictable.")
