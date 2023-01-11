@@ -4,7 +4,19 @@ Displays videos in a terminal/tty using ascii characters.
 This program is featured in one of my YouTube videos.
 
 ## Compatibility
-This program has only been tested to work on Linux. It should work on Mac OS and possibly on windows using cygwin. Otherwise you will manually need to install a curses package
+This program has only been tested to work on some Linux and Mac OS enviromnets listed below:
+
+| OS Name | Architecture | Python Versions |
+| ------- | ------------ | --------------------- |
+| Arch Linux | amd64 | python 3.10, python 3.11 |
+| Ubuntu 20.04 | amd64 | python 3.8, python 3.10 |
+| Mac OS Big Sur | amd64 | python 3.10 |
+| Termux 0.118.0 (on Android 13) | aarch64 | python 3.11 |
+
+
+The program has been tested to work on python 3.8 and later, there may be some issues installing pygame in python 3.11, which is why it is recommended to use python 3.10 for the best compatibility.
+
+It might work on Windows if you use cygwin. Otherwise you will manually need to install a curses package and you may run into environment related errors such as the behaviour of shared memory objects.
 
 Only mp4 files have been tested and most are guaranteed to work. Opencv and/or ffmpeg and/or pygame might not support some formats
 
