@@ -120,10 +120,19 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
     else:
         pygame.mixer.music.load(BytesIO(audio.stdout.read()))
 
+    # todo: dynamically correct speed
+    # this is currently just a band-aid fix over a bigger wound
+    if sys.platform == "darwin":
+        interval = (1 / (frame_rate * 1.03))
+        wait_for = video_duration/1.03
+    else:
+        wait_for = video_duration / 1.01
+        interval = (1 / (frame_rate * 1.01))
+
     while True:
         average_fps = 1 // dumping_interval.value
         time_left = dumping_interval.value * (total_frames-dumped_frames.value)
-        if not time_left > video_duration:
+        if not time_left > wait_for:
             break
         if child_error.qsize() > 0:
             return child_error.get()
@@ -131,12 +140,6 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
               f"at a rate of {average_fps} fps. Video playback will approximately start in"
               f" {datetime.timedelta(seconds=(time_left-video_duration))}", end="")
 
-    # todo: dynamically correct speed
-    # this is currently just a band-aid fix over a bigger wound
-    if sys.platform == "darwin":
-        interval = (1 / (frame_rate*1.03))
-    else:
-        interval = (1 / (frame_rate*1.01))
     std_scr = curses.initscr()
     curses.noecho()
     curses.cbreak()
