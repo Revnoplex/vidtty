@@ -10,7 +10,7 @@ This program has only been tested to work on some Linux and macOS environments l
 |--------------------------------|--------------|--------------------------|
 | Arch Linux                     | amd64        | python 3.10, python 3.11 |
 | Ubuntu 20.04                   | amd64        | python 3.8, python 3.10  |
-| macOS Big Sur                  | amd64        | python 3.10              |
+| macOS Big Sur                  | amd64        | python 3.10, python3.11  |
 | Termux 0.118.0 (on Android 13) | AArch64      | python 3.11              |
 
 
