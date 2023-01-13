@@ -45,8 +45,6 @@ else:
 sys.excepthook = exception_handler
 
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
-if os.getenv('PYGAME_HIDE_SUPPORT_PROMPT') == "hide":
-    import pygame
 
 
 def dump_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
@@ -107,7 +105,8 @@ lag = 0
 
 def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                  child_error: Queue):
-    pygame.init()
+    if not no_audio_required:
+        pygame.init()
     print("Extracting audio from video file...")
     try:
         audio = subprocess.Popen(["ffmpeg", "-i", video_file, "-loglevel", "panic", "-f", "mp3",
@@ -118,7 +117,8 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
               f"the executable is in one of your PATH directories.")
         exit()
     else:
-        pygame.mixer.music.load(BytesIO(audio.stdout.read()))
+        if not no_audio_required:
+            pygame.mixer.music.load(BytesIO(audio.stdout.read()))
 
     # todo: dynamically correct speed
     # this is currently just a band-aid fix over a bigger wound
@@ -143,7 +143,8 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
     std_scr = curses.initscr()
     curses.noecho()
     curses.cbreak()
-    pygame.mixer.music.play()
+    if not no_audio_required:
+        pygame.mixer.music.play()
     current_interval = interval
     global lag
 
@@ -154,13 +155,15 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
             start_time = datetime.datetime.now()
             terminal_lines = os.get_terminal_size().lines
             if frames.qsize() < 1:
-                pygame.mixer.music.pause()
+                if not no_audio_required:
+                    pygame.mixer.music.pause()
                 std_scr.clear()
                 std_scr.addstr(0, 0, "Buffering...")
                 std_scr.refresh()
                 time.sleep(10)
                 std_scr.clear()
-                pygame.mixer.music.unpause()
+                if not no_audio_required:
+                    pygame.mixer.music.unpause()
             frame_list = frames.get(timeout=interval)
             pre_duration = (datetime.datetime.now() - start_time).total_seconds()
             if pre_duration >= current_interval:
@@ -214,7 +217,22 @@ if __name__ == '__main__':
         print("No video file specified. Please specify one. mp4 files works the best")
         video_file = None
         exit(1)
-
+    if sys.argv[1] in ["--no-audio", "-m"]:
+        no_audio_required = True
+        if len(sys.argv) > 2:
+            video_file = sys.argv[2]
+        else:
+            print("No video file specified. Please specify one. mp4 files works the best")
+            video_file = None
+            exit(1)
+    else:
+        try:
+            import pygame
+        except ModuleNotFoundError:
+            print("pygame not installed so there won't be any audio")
+            no_audio_required = True
+        else:
+            no_audio_required = False
     video = cv2.VideoCapture(video_file)
     total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_rate = video.get(cv2.CAP_PROP_FPS)
