@@ -123,11 +123,11 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
     # todo: dynamically correct speed
     # this is currently just a band-aid fix over a bigger wound
     if sys.platform == "darwin":
-        interval = (1 / (frame_rate * 1.03))
-        wait_for = video_duration/1.03
+        speed_multiplier = 1.03
     else:
-        wait_for = video_duration / 1.01
-        interval = (1 / (frame_rate * 1.01))
+        speed_multiplier = 1.01
+    wait_for = video_duration / speed_multiplier
+    interval = (1 / (frame_rate * speed_multiplier))
 
     while True:
         average_fps = 1 // dumping_interval.value
