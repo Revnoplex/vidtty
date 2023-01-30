@@ -135,3 +135,4 @@ dmypy.json
 # ignore extra mp4 files
 *.mp4
 !fake-mr-beast-bad-apple-remix.mp4
+mrbeast.sh

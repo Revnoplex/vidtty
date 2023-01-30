@@ -233,6 +233,9 @@ if __name__ == '__main__':
             no_audio_required = True
         else:
             no_audio_required = False
+    if not os.path.exists(video_file):
+        print("File \"{video_file}\" not found!")
+        exit(1)
     video = cv2.VideoCapture(video_file)
     total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_rate = video.get(cv2.CAP_PROP_FPS)
