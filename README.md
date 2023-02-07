@@ -43,6 +43,6 @@ python3 -m pip install opencv-python
 ## Usage
 Some test files are provided to use. To run the program using e.g., one of the test files run:
 ```sh
-./vidtty ./fake-mr-beast-bad-apple-remix.mp4
+./vidtty.py ./fake-mr-beast-bad-apple-remix.mp4
 ```
 
