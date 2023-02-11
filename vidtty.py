@@ -2,7 +2,7 @@
 import signal
 import subprocess
 import traceback
-from io import BytesIO
+from io import BytesIO, FileIO
 import time
 from multiprocessing import Manager, Process, Queue, Value
 import sys
@@ -45,6 +45,82 @@ else:
 sys.excepthook = exception_handler
 
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+
+
+def write_frames(video_filename: str):
+    terminal_lines, terminal_columns = (lambda px: (px.lines, px.columns))(os.get_terminal_size())
+    print(terminal_columns)
+    print(terminal_lines)
+    to_write_name = f'{"".join(video_filename.rsplit(".", 1)[:-1])}.vidtxt'
+    file_to_write = open(to_write_name, "wb")
+    # layout of header: VIDTXT null {columns}32U null {lines}32U null {frame_start_address}64U {null to 64}
+    # full file layout: header, audio, frames
+    initial_header = b'\x56\x49\x44\x54\x58\x54\x00' + terminal_columns.to_bytes(4, "big", signed=False) + \
+                     b'\x00' + terminal_lines.to_bytes(4, "big", signed=False)
+    print(len(initial_header))
+    mem_file = initial_header + b'\x00' * (64 - len(initial_header))
+    print("Extracting audio from video file...")
+    try:
+        audio = subprocess.Popen(["ffmpeg", "-i", video_file, "-loglevel", "panic", "-f", "mp3",
+                                  "pipe:1"],
+                                 stdout=subprocess.PIPE)
+    except FileNotFoundError:
+        print(
+            f"\033[1;31mError\033[0m: ffmpeg executable not found. please make sure you install ffmpeg or make sure "
+            f"the executable is in one of your PATH directories.")
+        raise Exception
+    else:
+        if no_audio_required:
+            mem_file = mem_file[:17] + b'\x00'*8 + mem_file[25:]
+        else:
+            audio_bytes = BytesIO(audio.stdout.read()).read()
+            mem_file = mem_file[:17] + (64 + len(audio_bytes) + 2).to_bytes(8, "big", signed=False) + mem_file[25:]
+            mem_file = mem_file + b'\x00' + audio_bytes + b'\x00'
+    print(f"Writing to {to_write_name}...")
+    file_to_write.write(mem_file)
+    avg_interval_list = []
+    current_frame = 0
+    while True:
+        start_time = datetime.datetime.now()
+        if not video.isOpened():
+            raise Exception("open-cv failed to open video")
+        average_interval = 1.0
+        if len(avg_interval_list) > 0:
+            average_interval = sum(avg_interval_list) / len(avg_interval_list)
+        average_fps = 1 // average_interval
+        time_left = average_interval * (total_frames - current_frame)
+        print(f"\rDumping frame {current_frame} of {total_frames} "
+              f"at a rate of {average_fps} fps. ETA: "
+              f" {datetime.timedelta(seconds=time_left)}", end="")
+        status, vid_frame = video.read()
+        raw_frame = cv2.imencode(".jpg", vid_frame)[1].tobytes()
+        frame = Image.open(BytesIO(raw_frame))
+        resized_frame = frame.resize((terminal_columns, terminal_lines))
+        img_data = resized_frame.getdata()
+        ascii_gradients = [' ', '.', "'", '`', '^', '"', ',', ':', ';', 'I', 'l', '!', 'i', '>', '<', '~', '+',
+                           '_', '-', '?', ']', '[', '}', '{', '1', ')', '(', '|', '\\', '/', 't', 'f', 'j', 'r',
+                           'x', 'n', 'u', 'v', 'c', 'z', 'X', 'Y', 'U', 'J', 'C', 'L', 'Q', '0', 'O', 'Z', 'm',
+                           'w', 'q', 'p', 'd', 'b', 'k', 'h', 'a', 'o', '*', '#', 'M', 'W', '&', '8', '%', 'B',
+                           '@', '$']
+        frame_width = resized_frame.width
+        # frame_list: list[list[int, list[list[str, int]]]] = []
+        frame_list = ""
+        line = ""
+        for index, pixel in enumerate(img_data):
+            if index % frame_width:
+                average_pixel_gradient = sum(pixel) / 3
+                line += ascii_gradients[int(int(average_pixel_gradient) // (255 / (len(ascii_gradients) - 1)))]
+            else:
+                frame_list += line
+                line = ""
+
+        file_to_write.write(frame_list.encode("utf-8"))
+        current_frame += 1
+        duration = (datetime.datetime.now() - start_time).total_seconds()
+        avg_interval_list.append(duration)
+        if current_frame == total_frames:
+            break
+    file_to_write.close()
 
 
 def dump_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
@@ -101,6 +177,62 @@ def dump_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
 
 
 lag = 0
+
+
+def file_print_frames(filename):
+    pygame.init()
+    with open(filename, "rb") as vidtxt_file:
+        vidtxt_header = vidtxt_file.read(64)
+        terminal_columns = int.from_bytes(vidtxt_header[7:11], "big", signed=False)
+        terminal_lines = int.from_bytes(vidtxt_header[12:16], "big", signed=False)
+        print(terminal_columns)
+        print(terminal_lines)
+        frames_start_from = int.from_bytes(vidtxt_header[17:25], "big", signed=False)
+        audio_ends_at = frames_start_from - 2
+        vidtxt_file.seek(65, 0)
+        pygame.mixer.music.load(BytesIO(vidtxt_file.read(audio_ends_at - 65)))
+    pygame.mixer.music.play()
+    with open(filename, "rb") as vidtxt_file:
+        vidtxt_file.seek(frames_start_from, 0)
+        for line in range(terminal_lines - 2):
+            print(vidtxt_file.read(terminal_columns - 1).decode("utf-8"))
+        interval = 1 / 30
+        std_scr = curses.initscr()
+        curses.noecho()
+        curses.cbreak()
+        current_interval = interval
+        global lag
+        current_terminal_lines = os.get_terminal_size().lines
+        try:
+            while True:
+                start_time = datetime.datetime.now()
+                pre_duration = (datetime.datetime.now() - start_time).total_seconds()
+                if pre_duration >= current_interval:
+                    lag += 1
+                    current_interval = (pre_duration - current_interval) / lag
+                std_scr.refresh()
+                h_line_idx = 0
+                try:
+                    for line in range(terminal_lines):
+                        if line < current_terminal_lines - 1:
+                            std_scr.addstr(line, 0, vidtxt_file.read(terminal_columns - 1).decode("utf-8"))
+                        h_line_idx += 1
+                except _curses.error:
+                    continue
+                duration = (datetime.datetime.now() - start_time).total_seconds()
+                if duration < current_interval:
+                    time.sleep(current_interval - duration)
+                else:
+                    lag += 1
+                    current_interval = (duration - current_interval) / lag
+                if current_interval < interval:
+                    current_interval = interval
+            os.kill(os.getpid(), signal.SIGINT)
+        finally:
+            curses.echo()
+            curses.nocbreak()
+            curses.endwin()
+    time.sleep(60)
 
 
 def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
@@ -211,7 +343,9 @@ if __name__ == '__main__':
         _curses = None
         print(f"\033[1;31mError\033[0m: curses module not found. please make sure you have the package installed.")
         exit(1)
-    if len(sys.argv) > 1:
+    if len(sys.argv) > 2:
+        video_file = sys.argv[2]
+    elif len(sys.argv) > 1:
         video_file = sys.argv[1]
     else:
         print("No video file specified. Please specify one. mp4 files works the best")
@@ -236,26 +370,32 @@ if __name__ == '__main__':
     if not os.path.exists(video_file):
         print(f"File \"{video_file}\" not found!")
         exit(1)
-    video = cv2.VideoCapture(video_file)
-    total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-    frame_rate = video.get(cv2.CAP_PROP_FPS)
-    video_duration = (total_frames // frame_rate) + (total_frames % frame_rate) / frame_rate
-    global_interval = (1 / frame_rate)
-    manager = Manager()
-    queue = manager.Queue()
-    shared_dumped_frames = Value(ctypes.c_int, 0)
-    shared_dumping_interval = Value(ctypes.c_float, 1)
-    shared_child_error = manager.Queue()
-    p1 = Process(target=dump_frames, args=(queue, shared_dumped_frames, shared_dumping_interval, shared_child_error,
-                                           video_file, total_frames,),
-                 name="Frame Dumper")
-    try:
-        p2 = Process(target=print_frames, args=(queue, shared_dumped_frames, shared_dumping_interval,
-                                                shared_child_error))
-        p1.exception = exception_handler
-        p1.start()
-        child_error_state = print_frames(queue, shared_dumped_frames, shared_dumping_interval, shared_child_error)
-        if child_error_state:
-            exception_handler(*child_error_state)
-    finally:
-        p1.terminate()
+    if video_file.endswith(".vidtxt"):
+        file_print_frames(video_file)
+    else:
+        video = cv2.VideoCapture(video_file)
+        total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+        frame_rate = video.get(cv2.CAP_PROP_FPS)
+        video_duration = (total_frames // frame_rate) + (total_frames % frame_rate) / frame_rate
+        global_interval = (1 / frame_rate)
+        if sys.argv[1] in ["--dump", "-d"]:
+            write_frames(video_file)
+        else:
+            manager = Manager()
+            queue = manager.Queue()
+            shared_dumped_frames = Value(ctypes.c_int, 0)
+            shared_dumping_interval = Value(ctypes.c_float, 1)
+            shared_child_error = manager.Queue()
+            p1 = Process(target=dump_frames, args=(queue, shared_dumped_frames, shared_dumping_interval, shared_child_error,
+                                                   video_file, total_frames,),
+                         name="Frame Dumper")
+            try:
+                p2 = Process(target=print_frames, args=(queue, shared_dumped_frames, shared_dumping_interval,
+                                                        shared_child_error))
+                p1.exception = exception_handler
+                p1.start()
+                child_error_state = print_frames(queue, shared_dumped_frames, shared_dumping_interval, shared_child_error)
+                if child_error_state:
+                    exception_handler(*child_error_state)
+            finally:
+                p1.terminate()
