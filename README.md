@@ -1,7 +1,7 @@
 # Vidtty
-Displays videos in a terminal/tty using ascii characters.
+A command line based video player written in python that converts and plays videos using ascii characters
 
-This program is featured in one of my YouTube videos.
+This program is featured in one of my [YouTube videos](https://www.youtube.com/watch?v=OSnveMc77ss).
 
 ## Compatibility
 This program has only been tested to work on some Linux and macOS environments listed below:
