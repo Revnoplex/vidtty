@@ -53,12 +53,21 @@ def write_frames(video_filename: str):
     print(terminal_lines)
     to_write_name = f'{"".join(video_filename.rsplit(".", 1)[:-1])}.vidtxt'
     file_to_write = open(to_write_name, "wb")
-    # layout of header: VIDTXT null {columns}32U null {lines}32U null {frame_start_address}64U {null to 64}
-    # full file layout: header, audio, frames
+    #                      0 to 5    6     7 to 10     11    12 to 15   16           17 to 25             26 to 63
+    # layout of header: VIDTXT(str) NUL {columns}(u32) NUL {lines}(u32) NUL {frame_start_address}(u64) NUL to byte 0x3F
+
+    #                     0 to 63                     64        65 to x-2        x - 1           x to EOF
+    # full file layout: header to 0x3F (64 bytes), null byte, audio from 0x41, null byte, frames from value of x
+    # x = frame_start_address
+
+    # byte numbers:      0   1   2   3   4   5   6                                7 to 10
     initial_header = b'\x56\x49\x44\x54\x58\x54\x00' + terminal_columns.to_bytes(4, "big", signed=False) + \
                      b'\x00' + terminal_lines.to_bytes(4, "big", signed=False)
+    #                    11                           12 to 15
     print(len(initial_header))
+    #                           16 to 63
     mem_file = initial_header + b'\x00' * (64 - len(initial_header))
+
     print("Extracting audio from video file...")
     try:
         audio = subprocess.Popen(["ffmpeg", "-i", video_file, "-loglevel", "panic", "-f", "mp3",
@@ -71,11 +80,16 @@ def write_frames(video_filename: str):
         raise Exception
     else:
         if no_audio_required:
+            # 17 to 25
             mem_file = mem_file[:17] + b'\x00'*8 + mem_file[25:]
         else:
             audio_bytes = BytesIO(audio.stdout.read()).read()
+            # 17 to 25
             mem_file = mem_file[:17] + (64 + len(audio_bytes) + 2).to_bytes(8, "big", signed=False) + mem_file[25:]
+            #                        64     64 to x-2        x-1
             mem_file = mem_file + b'\x00' + audio_bytes + b'\x00'
+            # x = frame_start_address
+
     print(f"Writing to {to_write_name}...")
     file_to_write.write(mem_file)
     avg_interval_list = []
