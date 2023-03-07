@@ -387,6 +387,7 @@ if __name__ == '__main__':
             print(f"Need permission to write to \"{tty}\"\nRunning sudo...")
             os.system(f"sudo chown {os.getuid()} {tty}")
             os.system(f"chmod 600 {tty}")
+        print("Running on another terminal session...")
         with open(tty, 'rb') as inf, open(tty, 'wb') as outf:
             os.dup2(inf.fileno(), 0)
             os.dup2(outf.fileno(), 1)
