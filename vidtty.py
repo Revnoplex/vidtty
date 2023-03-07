@@ -373,6 +373,25 @@ if __name__ == '__main__':
         print("No video file specified. Please specify one. mp4 files works the best")
         video_file = None
         exit(1)
+    if "-t" in sys.argv and len(sys.argv) > 3:
+
+        tty = sys.argv[2] if sys.argv[1] == "-t" else sys.argv[3] if sys.argv[2] == "-t" else "/dev/stdout"
+        video_file = sys.argv[3] if sys.argv[1] == "-t" else sys.argv[1]
+        try:
+            open(tty, "rb").close()
+            open(tty, "wb").close()
+        except FileNotFoundError:
+            print(f"Output pipe \"{tty}\" not found!")
+            exit(1)
+        except PermissionError:
+            print(f"Need permission to write to \"{tty}\"\nRunning sudo...")
+            os.system(f"sudo chown {os.getuid()} {tty}")
+            os.system(f"chmod 600 {tty}")
+        with open(tty, 'rb') as inf, open(tty, 'wb') as outf:
+            os.dup2(inf.fileno(), 0)
+            os.dup2(outf.fileno(), 1)
+            os.dup2(outf.fileno(), 2)
+        os.environ['TERM'] = 'linux'
     if sys.argv[1] in ["--no-audio", "-m"]:
         no_audio_required = True
         if len(sys.argv) > 2:
