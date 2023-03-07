@@ -49,8 +49,6 @@ os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
 def write_frames(video_filename: str):
     terminal_lines, terminal_columns = (lambda px: (px.lines, px.columns))(os.get_terminal_size())
-    print(terminal_columns)
-    print(terminal_lines)
     to_write_name = f'{"".join(video_filename.rsplit(".", 1)[:-1])}.vidtxt'
     file_to_write = open(to_write_name, "wb")
     #                      0 to 5    6     7 to 10     11    12 to 15   16           17 to 25             26 to 63
@@ -64,10 +62,9 @@ def write_frames(video_filename: str):
     initial_header = b'\x56\x49\x44\x54\x58\x54\x00' + terminal_columns.to_bytes(4, "big", signed=False) + \
                      b'\x00' + terminal_lines.to_bytes(4, "big", signed=False)
     #                    11                           12 to 15
-    print(len(initial_header))
     #                           16 to 63
     mem_file = initial_header + b'\x00' * (64 - len(initial_header))
-
+    # todo: add frame rate and total frames to header
     print("Extracting audio from video file...")
     try:
         audio = subprocess.Popen(["ffmpeg", "-i", video_file, "-loglevel", "panic", "-f", "mp3",
@@ -208,8 +205,14 @@ def file_print_frames(filename):
     pygame.mixer.music.play()
     with open(filename, "rb") as vidtxt_file:
         vidtxt_file.seek(frames_start_from, 0)
+        current_terminal_lines = os.get_terminal_size().lines
+        current_terminal_columns = os.get_terminal_size().columns
         for line in range(terminal_lines - 2):
-            print(vidtxt_file.read(terminal_columns - 1).decode("utf-8"))
+            if terminal_columns > current_terminal_columns:
+                print(vidtxt_file.read(terminal_columns - 1).decode("utf-8")[
+                      :-(terminal_columns - current_terminal_columns)])
+            else:
+                print(vidtxt_file.read(terminal_columns - 1).decode("utf-8"))
         interval = 1 / 30
         std_scr = curses.initscr()
         curses.noecho()
@@ -217,6 +220,7 @@ def file_print_frames(filename):
         current_interval = interval
         global lag
         current_terminal_lines = os.get_terminal_size().lines
+        current_terminal_columns = os.get_terminal_size().columns
         try:
             while True:
                 start_time = datetime.datetime.now()
@@ -225,12 +229,16 @@ def file_print_frames(filename):
                     lag += 1
                     current_interval = (pre_duration - current_interval) / lag
                 std_scr.refresh()
-                h_line_idx = 0
                 try:
-                    for line in range(terminal_lines):
+                    for line in range(terminal_lines - 1):
                         if line < current_terminal_lines - 1:
-                            std_scr.addstr(line, 0, vidtxt_file.read(terminal_columns - 1).decode("utf-8"))
-                        h_line_idx += 1
+                            if terminal_columns > current_terminal_columns:
+                                std_scr.addstr(line, 0, vidtxt_file.read(terminal_columns - 1).decode("utf-8")[
+                                                        :-(terminal_columns - current_terminal_columns)])
+                            else:
+                                std_scr.addstr(line, 0, vidtxt_file.read(terminal_columns - 1).decode("utf-8"))
+                        else:
+                            vidtxt_file.read(terminal_columns - 1).decode("utf-8")
                 except _curses.error:
                     continue
                 duration = (datetime.datetime.now() - start_time).total_seconds()
@@ -400,15 +408,16 @@ if __name__ == '__main__':
             shared_dumped_frames = Value(ctypes.c_int, 0)
             shared_dumping_interval = Value(ctypes.c_float, 1)
             shared_child_error = manager.Queue()
-            p1 = Process(target=dump_frames, args=(queue, shared_dumped_frames, shared_dumping_interval, shared_child_error,
-                                                   video_file, total_frames,),
+            p1 = Process(target=dump_frames, args=(queue, shared_dumped_frames, shared_dumping_interval,
+                                                   shared_child_error, video_file, total_frames,),
                          name="Frame Dumper")
             try:
                 p2 = Process(target=print_frames, args=(queue, shared_dumped_frames, shared_dumping_interval,
                                                         shared_child_error))
                 p1.exception = exception_handler
                 p1.start()
-                child_error_state = print_frames(queue, shared_dumped_frames, shared_dumping_interval, shared_child_error)
+                child_error_state = print_frames(queue, shared_dumped_frames, shared_dumping_interval,
+                                                 shared_child_error)
                 if child_error_state:
                     exception_handler(*child_error_state)
             finally:
