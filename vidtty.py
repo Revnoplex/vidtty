@@ -14,6 +14,11 @@ from PIL import Image
 import cv2
 import os
 
+
+class OpenError(BaseException):
+    pass
+
+
 if sys.version_info[1] < 10:
     def exception_handler(exception_type: BaseException, exception: BaseException,
                           exception_traceback: Union[TracebackType, list]):
@@ -47,7 +52,7 @@ sys.excepthook = exception_handler
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
 
-def write_frames(video_filename: str):
+def dump_frames(video_filename: str):
     terminal_lines, terminal_columns = (lambda px: (px.lines, px.columns))(os.get_terminal_size())
     to_write_name = f'{"".join(video_filename.rsplit(".", 1)[:-1])}.vidtxt'
     file_to_write = open(to_write_name, "wb")
@@ -72,8 +77,8 @@ def write_frames(video_filename: str):
                                  stdout=subprocess.PIPE)
     except FileNotFoundError:
         print(
-            f"\033[1;31mError\033[0m: ffmpeg executable not found. please make sure you install ffmpeg or make sure "
-            f"the executable is in one of your PATH directories.")
+            f"\033[1;31mFatal\033[0m: ffmpeg executable not found. please make sure you install ffmpeg or make sure "
+            f"the executable is in one of your PATH directories.", file=sys.stderr)
         raise Exception
     else:
         if no_audio_required:
@@ -94,13 +99,14 @@ def write_frames(video_filename: str):
     while True:
         start_time = datetime.datetime.now()
         if not video.isOpened():
-            raise Exception("open-cv failed to open video")
+            print("\033[1;31mFatal\033[0m: Failed to open video", file=sys.stderr)
+            return
         average_interval = 1.0
         if len(avg_interval_list) > 0:
             average_interval = sum(avg_interval_list) / len(avg_interval_list)
         average_fps = 1 // average_interval
         time_left = average_interval * (total_frames - current_frame)
-        print(f"\rDumping frame {current_frame} of {total_frames} "
+        print(f"\rRendering frame {current_frame} of {total_frames} "
               f"at a rate of {average_fps} fps. ETA: "
               f" {datetime.timedelta(seconds=time_left)}", end="")
         status, vid_frame = video.read()
@@ -134,10 +140,10 @@ def write_frames(video_filename: str):
     file_to_write.close()
 
 
-def dump_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
+def render_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                 error: Queue, video_filename: str, total_frame_count: int):
     try:
-        print("beginning to dump frames...")
+        print("beginning to render frames...")
         current_frame = 0
         vid = cv2.VideoCapture(video_filename)
         avg_interval_list = []
@@ -145,7 +151,8 @@ def dump_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
         while True:
             start_time = datetime.datetime.now()
             if not vid.isOpened():
-                raise Exception("open-cv failed to open video")
+                print("\033[1;31mFatal\033[0m: Failed to open video", file=sys.stderr)
+                return
             average_interval = 1.0
             if len(avg_interval_list) > 0:
                 average_interval = sum(avg_interval_list)/len(avg_interval_list)
@@ -259,6 +266,7 @@ def file_print_frames(filename):
 
 def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                  child_error: Queue):
+    global no_audio_required
     if not no_audio_required:
         pygame.init()
     print("Extracting audio from video file...")
@@ -272,7 +280,11 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
         exit()
     else:
         if not no_audio_required:
-            pygame.mixer.music.load(BytesIO(audio.stdout.read()))
+            try:
+                pygame.mixer.music.load(BytesIO(audio.stdout.read()))
+            except pygame.error:
+                print("\033[1;33mWarning\033[0m: Failed to load audio! Playing without audio...")
+                no_audio_required = True
 
     # todo: dynamically correct speed
     # this is currently just a band-aid fix over a bigger wound
@@ -363,7 +375,7 @@ if __name__ == '__main__':
     except ModuleNotFoundError:
         curses = None
         _curses = None
-        print(f"\033[1;31mError\033[0m: curses module not found. please make sure you have the package installed.")
+        print(f"\033[1;31mFatal\033[0m: curses module not found. please make sure you have the package installed.")
         exit(1)
     if len(sys.argv) > 2:
         video_file = sys.argv[2]
@@ -418,19 +430,20 @@ if __name__ == '__main__':
         video = cv2.VideoCapture(video_file)
         total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
         frame_rate = video.get(cv2.CAP_PROP_FPS)
+        frame_rate = 30 if not frame_rate else frame_rate
         video_duration = (total_frames // frame_rate) + (total_frames % frame_rate) / frame_rate
         global_interval = (1 / frame_rate)
         if sys.argv[1] in ["--dump", "-d"]:
-            write_frames(video_file)
+            dump_frames(video_file)
         else:
             manager = Manager()
             queue = manager.Queue()
             shared_dumped_frames = Value(ctypes.c_int, 0)
             shared_dumping_interval = Value(ctypes.c_float, 1)
             shared_child_error = manager.Queue()
-            p1 = Process(target=dump_frames, args=(queue, shared_dumped_frames, shared_dumping_interval,
+            p1 = Process(target=render_frames, args=(queue, shared_dumped_frames, shared_dumping_interval,
                                                    shared_child_error, video_file, total_frames,),
-                         name="Frame Dumper")
+                         name="Frame Renderer")
             try:
                 p2 = Process(target=print_frames, args=(queue, shared_dumped_frames, shared_dumping_interval,
                                                         shared_child_error))
