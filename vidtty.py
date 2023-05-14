@@ -229,7 +229,8 @@ def file_print_frames(filename):
         current_terminal_lines = os.get_terminal_size().lines
         current_terminal_columns = os.get_terminal_size().columns
         try:
-            while True:
+            eof = False
+            while not eof:
                 start_time = datetime.datetime.now()
                 pre_duration = (datetime.datetime.now() - start_time).total_seconds()
                 if pre_duration >= current_interval:
@@ -238,14 +239,15 @@ def file_print_frames(filename):
                 std_scr.refresh()
                 try:
                     for line in range(terminal_lines - 1):
+                        line_contents = vidtxt_file.read(terminal_columns - 1)
+                        if not len(line_contents):
+                            eof = True
                         if line < current_terminal_lines - 1:
                             if terminal_columns > current_terminal_columns:
-                                std_scr.addstr(line, 0, vidtxt_file.read(terminal_columns - 1).decode("utf-8")[
+                                std_scr.addstr(line, 0, line_contents.decode("utf-8")[
                                                         :-(terminal_columns - current_terminal_columns)])
                             else:
-                                std_scr.addstr(line, 0, vidtxt_file.read(terminal_columns - 1).decode("utf-8"))
-                        else:
-                            vidtxt_file.read(terminal_columns - 1).decode("utf-8")
+                                std_scr.addstr(line, 0, line_contents.decode("utf-8"))
                 except _curses.error:
                     continue
                 duration = (datetime.datetime.now() - start_time).total_seconds()
@@ -256,12 +258,10 @@ def file_print_frames(filename):
                     current_interval = (duration - current_interval) / lag
                 if current_interval < interval:
                     current_interval = interval
-            os.kill(os.getpid(), signal.SIGINT)
         finally:
             curses.echo()
             curses.nocbreak()
             curses.endwin()
-    time.sleep(60)
 
 
 def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
@@ -352,7 +352,8 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                 current_interval = (duration - current_interval) / lag
             if current_interval < interval:
                 current_interval = interval
-        os.kill(os.getpid(), signal.SIGINT)
+        # os.kill(os.getpid(), signal.SIGINT)
+        std_scr.addstr(0, 0, "Press Ctrl-C to exit")
     finally:
         curses.echo()
         curses.nocbreak()
