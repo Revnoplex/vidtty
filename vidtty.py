@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import signal
+import struct
 import subprocess
 import traceback
-from io import BytesIO, FileIO
+from io import BytesIO
 import time
 from multiprocessing import Manager, Process, Queue, Value
 import sys
@@ -52,44 +53,46 @@ sys.excepthook = exception_handler
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
 
-def dump_frames(video_filename: str):
+def dump_frames(video_filename: str, fps: float):
     terminal_lines, terminal_columns = (lambda px: (px.lines, px.columns))(os.get_terminal_size())
     to_write_name = f'{"".join(video_filename.rsplit(".", 1)[:-1])}.vidtxt'
     file_to_write = open(to_write_name, "wb")
-    #                      0 to 5    6     7 to 10     11    12 to 15   16           17 to 25             26 to 63
-    # layout of header: VIDTXT(str) NUL {columns}(u32) NUL {lines}(u32) NUL {frame_start_address}(u64) NUL to byte 0x3F
-
-    #                     0 to 63                     64        65 to x-2        x - 1           x to EOF
-    # full file layout: header to 0x3F (64 bytes), null byte, audio from 0x41, null byte, frames from value of x
+    #                      0 to 5    6   7     8 to 11       12 to 15    16 to 23          24 to 32
+    # layout of header: VIDTXT(str) NUL NUL {columns}(u32) {lines}(u32) {fps}(f64) {frame_start_address}(u64)
+    # NUL to byte 0x3F
+    #   29 to 63
+    #                     0 to 63                      64 to x-1        x to EOF
+    # full file layout: header to 0x3F (64 bytes), audio from 0x41, frames from value of x
     # x = frame_start_address
-
-    # byte numbers:      0   1   2   3   4   5   6                                7 to 10
-    initial_header = b'\x56\x49\x44\x54\x58\x54\x00' + terminal_columns.to_bytes(4, "big", signed=False) + \
-                     b'\x00' + terminal_lines.to_bytes(4, "big", signed=False)
-    #                    11                           12 to 15
-    #                           16 to 63
+    if fps == float("inf"):
+        print("033[1;31mFatal\033[0m: Cannot dump frames as the fps value cannot be stored as a 64 bit double")
+        return
+    # byte numbers:      0   1   2   3   4   5   6   7                            8 to 11
+    initial_header = b'\x56\x49\x44\x54\x58\x54\x00\x00' + terminal_columns.to_bytes(4, "big", signed=False) + \
+                     terminal_lines.to_bytes(4, "big", signed=False) + struct.pack("d", fps)
+    #                                          12 to 15                 16 to 23
+    #                           24 to 63
     mem_file = initial_header + b'\x00' * (64 - len(initial_header))
-    # todo: add frame rate and total frames to header
-    print("Extracting audio from video file...")
-    try:
-        audio = subprocess.Popen(["ffmpeg", "-i", video_file, "-loglevel", "panic", "-f", "mp3",
-                                  "pipe:1"],
-                                 stdout=subprocess.PIPE)
-    except FileNotFoundError:
-        print(
-            f"\033[1;31mFatal\033[0m: ffmpeg executable not found. please make sure you install ffmpeg or make sure "
-            f"the executable is in one of your PATH directories.", file=sys.stderr)
-        raise Exception
+    if no_audio_required:
+        # 24 to 32
+        mem_file = mem_file[:24] + b'\x00' * 8 + mem_file[32:]
     else:
-        if no_audio_required:
-            # 17 to 25
-            mem_file = mem_file[:17] + b'\x00'*8 + mem_file[25:]
+        print("Extracting audio from video file...")
+        try:
+            audio = subprocess.Popen(["ffmpeg", "-i", video_file, "-loglevel", "panic", "-f", "mp3",
+                                      "pipe:1"],
+                                     stdout=subprocess.PIPE)
+        except FileNotFoundError:
+            print(
+                f"\033[1;31mFatal\033[0m: ffmpeg executable not found. please make sure you install ffmpeg or make sure"
+                f" the executable is in one of your PATH directories.", file=sys.stderr)
+            return
         else:
             audio_bytes = BytesIO(audio.stdout.read()).read()
-            # 17 to 25
-            mem_file = mem_file[:17] + (64 + len(audio_bytes) + 2).to_bytes(8, "big", signed=False) + mem_file[25:]
-            #                        64     64 to x-2        x-1
-            mem_file = mem_file + b'\x00' + audio_bytes + b'\x00'
+            # 24 to 32
+            mem_file = mem_file[:24] + len(audio_bytes).to_bytes(8, "big", signed=False) + mem_file[32:]
+            #                      64 to x-1
+            mem_file = mem_file + audio_bytes
             # x = frame_start_address
 
     print(f"Writing to {to_write_name}...")
@@ -141,7 +144,7 @@ def dump_frames(video_filename: str):
 
 
 def render_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
-                error: Queue, video_filename: str, total_frame_count: int):
+                  error: Queue, video_filename: str, total_frame_count: int):
     try:
         print("beginning to render frames...")
         current_frame = 0
@@ -172,6 +175,7 @@ def render_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
             frame_width = resized_frame.width
             h_line_idx = 0
             frame_list: list[list[int, list[list[str, int]]]] = []
+            frame_num = 0
             line = ""
             for index, pixel in enumerate(img_data):
                 if index % frame_width:
@@ -180,10 +184,11 @@ def render_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                 else:
                     if h_line_idx < terminal_lines - 1:
                         frame_list.append([h_line_idx, line])
+                        frame_num += 1
                     h_line_idx += 1
                     line = ""
 
-            frames.put(frame_list)
+            frames.put((current_frame, frame_list))
             current_frame += 1
             duration = (datetime.datetime.now() - start_time).total_seconds()
             avg_interval_list.append(duration)
@@ -198,29 +203,33 @@ lag = 0
 
 
 def file_print_frames(filename):
-    pygame.init()
+    global no_audio_required
+    if not no_audio_required:
+        pygame.init()
     with open(filename, "rb") as vidtxt_file:
         vidtxt_header = vidtxt_file.read(64)
-        terminal_columns = int.from_bytes(vidtxt_header[7:11], "big", signed=False)
+        terminal_columns = int.from_bytes(vidtxt_header[8:12], "big", signed=False)
         terminal_lines = int.from_bytes(vidtxt_header[12:16], "big", signed=False)
-        print(terminal_columns)
-        print(terminal_lines)
-        frames_start_from = int.from_bytes(vidtxt_header[17:25], "big", signed=False)
-        audio_ends_at = frames_start_from - 2
-        vidtxt_file.seek(65, 0)
-        pygame.mixer.music.load(BytesIO(vidtxt_file.read(audio_ends_at - 65)))
-    pygame.mixer.music.play()
+        fps: float = struct.unpack("d", vidtxt_header[16:24])[0]
+        audio_size = int.from_bytes(vidtxt_header[24:32], "big", signed=False)
+        frames_start_from = 64 + audio_size
+        vidtxt_file.seek(64, 0)
+        if audio_size < 1:
+            no_audio_required = True
+        if not no_audio_required:
+            try:
+                pygame.mixer.music.load(BytesIO(vidtxt_file.read(audio_size)))
+            except pygame.error:
+                print("\033[1;33mWarning\033[0m: Failed to load audio! Playing without audio...")
+                no_audio_required = True
+        f_total_frames = \
+            (os.stat(filename).st_size - frames_start_from) // ((terminal_columns - 1) * (terminal_lines - 1))
+        vid_duration = (f_total_frames // fps) + (f_total_frames % fps) / fps
+    if not no_audio_required:
+        pygame.mixer.music.play()
     with open(filename, "rb") as vidtxt_file:
         vidtxt_file.seek(frames_start_from, 0)
-        current_terminal_lines = os.get_terminal_size().lines
-        current_terminal_columns = os.get_terminal_size().columns
-        for line in range(terminal_lines - 2):
-            if terminal_columns > current_terminal_columns:
-                print(vidtxt_file.read(terminal_columns - 1).decode("utf-8")[
-                      :-(terminal_columns - current_terminal_columns)])
-            else:
-                print(vidtxt_file.read(terminal_columns - 1).decode("utf-8"))
-        interval = 1 / 30
+        interval = 1 / fps
         std_scr = curses.initscr()
         curses.noecho()
         curses.cbreak()
@@ -228,9 +237,14 @@ def file_print_frames(filename):
         global lag
         current_terminal_lines = os.get_terminal_size().lines
         current_terminal_columns = os.get_terminal_size().columns
+        eof = False
+        frame_number = 0
+        displayed_since = datetime.datetime.now()
         try:
-            eof = False
             while not eof:
+                time_elapsed = datetime.datetime.now() - displayed_since
+                calculated_frames = round(fps * time_elapsed.total_seconds())
+                frames_behind = calculated_frames - frame_number
                 start_time = datetime.datetime.now()
                 pre_duration = (datetime.datetime.now() - start_time).total_seconds()
                 if pre_duration >= current_interval:
@@ -238,7 +252,9 @@ def file_print_frames(filename):
                     current_interval = (pre_duration - current_interval) / lag
                 std_scr.refresh()
                 try:
+                    iteration = 0
                     for line in range(terminal_lines - 1):
+                        iteration += 1
                         line_contents = vidtxt_file.read(terminal_columns - 1)
                         if not len(line_contents):
                             eof = True
@@ -248,11 +264,20 @@ def file_print_frames(filename):
                                                         :-(terminal_columns - current_terminal_columns)])
                             else:
                                 std_scr.addstr(line, 0, line_contents.decode("utf-8"))
+                    if debug_mode:
+                        std_scr.addstr(terminal_lines - 1, 0,
+                                       f'\rOutputted frame {frame_number}(approx. {calculated_frames})/{f_total_frames}'
+                                       f' {time_elapsed}/{datetime.timedelta(seconds=vid_duration)} lagging '
+                                       f'{frames_behind} frames behind')
                 except _curses.error:
                     continue
+                frame_number += 1
                 duration = (datetime.datetime.now() - start_time).total_seconds()
                 if duration < current_interval:
-                    time.sleep(current_interval - duration)
+                    if frames_behind < 1:
+                        time.sleep(current_interval - duration)
+                    if frames_behind < 0:
+                        time.sleep(current_interval - duration)
                 else:
                     lag += 1
                     current_interval = (duration - current_interval) / lag
@@ -286,14 +311,8 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                 print("\033[1;33mWarning\033[0m: Failed to load audio! Playing without audio...")
                 no_audio_required = True
 
-    # todo: dynamically correct speed
-    # this is currently just a band-aid fix over a bigger wound
-    if sys.platform == "darwin":
-        speed_multiplier = 1.03
-    else:
-        speed_multiplier = 1.01
-    wait_for = video_duration / speed_multiplier
-    interval = (1 / (frame_rate * speed_multiplier))
+    wait_for = video_duration
+    interval = 1 / frame_rate
 
     while True:
         average_fps = 1 // dumping_interval.value
@@ -312,6 +331,7 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
     if not no_audio_required:
         pygame.mixer.music.play()
     current_interval = interval
+    displayed_since = datetime.datetime.now()
     global lag
 
     try:
@@ -330,29 +350,40 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                 std_scr.clear()
                 if not no_audio_required:
                     pygame.mixer.music.unpause()
-            frame_list = frames.get(timeout=interval)
+            frame_number, frame_list = frames.get(timeout=interval)
+            time_elapsed = datetime.datetime.now() - displayed_since
+            calculated_frames = round(frame_rate * time_elapsed.total_seconds())
+            frames_behind = calculated_frames - frame_number
             pre_duration = (datetime.datetime.now() - start_time).total_seconds()
             if pre_duration >= current_interval:
                 lag += 1
                 current_interval = (pre_duration - current_interval) / lag
             std_scr.refresh()
             h_line_idx = 0
+
             try:
                 for frame in frame_list:
                     if frame[0] < terminal_lines - 1:
                         std_scr.addstr(frame[0], 0, frame[1])
                     h_line_idx += 1
+                if debug_mode:
+                    std_scr.addstr(terminal_lines - 1, 0,
+                                   f'\rOutputted frame {frame_number}(approx. {calculated_frames})/{total_frames} '
+                                   f'{time_elapsed}/{datetime.timedelta(seconds=video_duration)} lagging '
+                                   f'{frames_behind} frames behind')
             except _curses.error:
                 continue
             duration = (datetime.datetime.now() - start_time).total_seconds()
             if duration < current_interval:
-                time.sleep(current_interval - duration)
+                if frames_behind < 1:
+                    time.sleep(current_interval - duration)
+                if frames_behind < 0:
+                    time.sleep(current_interval - duration)
             else:
                 lag += 1
                 current_interval = (duration - current_interval) / lag
             if current_interval < interval:
                 current_interval = interval
-        # os.kill(os.getpid(), signal.SIGINT)
         std_scr.addstr(0, 0, "Press Ctrl-C to exit")
     finally:
         curses.echo()
@@ -363,7 +394,7 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
 
 
 if __name__ == '__main__':
-    print("vidtty v1.0.0")
+    print("vidtty v1.1.0")
     if sys.platform not in ["linux", "darwin"]:
         print("\033[1;33mWarning\033[0m: This version of vidtty has only been tested to on Unix based OSes such as"
               " Linux or MacOS. \nIf you are running this program in Windows, using cygwin is recommended. "
@@ -378,18 +409,29 @@ if __name__ == '__main__':
         _curses = None
         print(f"\033[1;31mFatal\033[0m: curses module not found. please make sure you have the package installed.")
         exit(1)
-    if len(sys.argv) > 2:
-        video_file = sys.argv[2]
-    elif len(sys.argv) > 1:
-        video_file = sys.argv[1]
-    else:
+    video_file = sys.argv[-1]
+    options = sys.argv[1:-1]
+    if set(options + [video_file]).intersection({"--help", "-h"}) or len(sys.argv) < 2:
+        print("\033[1mHelp Menu\033[0m")
+        print("Usage vidtty [OPTIONS] FILE")
+        print("-h --help\tHelp - displays this menu")
+        print("-t --tty\tTTY - Send output to another file or tty instead of the default stdout")
+        print("-b --debug-mode\tDebug Mode - Extra information will show at the bottom of the screen when playing")
+        print("-m --no-audio\tNo Audio - Play or save video without any audio. Avoids loading up any audio modules")
+        print("-d --dump\tDump - Convert the video to a instantly playable vidtxt file")
+        video_file = None
+        exit(1)
+    if len(sys.argv) < 2:
         print("No video file specified. Please specify one. mp4 files works the best")
         video_file = None
         exit(1)
-    if "-t" in sys.argv and len(sys.argv) > 3:
-
-        tty = sys.argv[2] if sys.argv[1] == "-t" else sys.argv[3] if sys.argv[2] == "-t" else "/dev/stdout"
-        video_file = sys.argv[3] if sys.argv[1] == "-t" else sys.argv[1]
+    if set(options).intersection({"--tty", "-t"}) and len(options) > 2:
+        video_file = sys.argv[-3]
+        options = sys.argv[1:-3] + sys.argv[-2:]
+        if options.index("-t")+1 < len(options):
+            tty = options[options.index("-t")+1]
+        else:
+            tty = "/dev/stdout"
         try:
             open(tty, "rb").close()
             open(tty, "wb").close()
@@ -406,10 +448,14 @@ if __name__ == '__main__':
             os.dup2(outf.fileno(), 1)
             os.dup2(outf.fileno(), 2)
         os.environ['TERM'] = 'linux'
-    if sys.argv[1] in ["--no-audio", "-m"]:
+    if options:
+        debug_mode = bool(set(options).intersection({"--debug", "-b"}))
+    else:
+        debug_mode = False
+    if set(options).intersection({"--no-audio", "-m"}):
         no_audio_required = True
         if len(sys.argv) > 2:
-            video_file = sys.argv[2]
+            pass
         else:
             print("No video file specified. Please specify one. mp4 files works the best")
             video_file = None
@@ -425,17 +471,19 @@ if __name__ == '__main__':
     if not os.path.exists(video_file):
         print(f"File \"{video_file}\" not found!")
         exit(1)
-    if video_file.endswith(".vidtxt"):
+    with open(video_file, "rb") as vidtxt_check:
+        first_8 = vidtxt_check.read(8)
+    if video_file.endswith(".vidtxt") or first_8 == b'VIDTXT\x00\x00':
         file_print_frames(video_file)
     else:
         video = cv2.VideoCapture(video_file)
         total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
         frame_rate = video.get(cv2.CAP_PROP_FPS)
-        frame_rate = 30 if not frame_rate else frame_rate
+        frame_rate = 30.0 if not frame_rate else frame_rate
         video_duration = (total_frames // frame_rate) + (total_frames % frame_rate) / frame_rate
         global_interval = (1 / frame_rate)
-        if sys.argv[1] in ["--dump", "-d"]:
-            dump_frames(video_file)
+        if set(options).intersection({"--dump", "-d"}):
+            dump_frames(video_file, frame_rate)
         else:
             manager = Manager()
             queue = manager.Queue()
@@ -443,7 +491,7 @@ if __name__ == '__main__':
             shared_dumping_interval = Value(ctypes.c_float, 1)
             shared_child_error = manager.Queue()
             p1 = Process(target=render_frames, args=(queue, shared_dumped_frames, shared_dumping_interval,
-                                                   shared_child_error, video_file, total_frames,),
+                                                     shared_child_error, video_file, total_frames,),
                          name="Frame Renderer")
             try:
                 p2 = Process(target=print_frames, args=(queue, shared_dumped_frames, shared_dumping_interval,
