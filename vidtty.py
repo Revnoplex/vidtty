@@ -425,9 +425,11 @@ if __name__ == '__main__':
         print("No video file specified. Please specify one. mp4 files works the best")
         video_file = None
         exit(1)
-    if set(options).intersection({"--tty", "-t"}) and len(options) > 2:
-        video_file = sys.argv[-3]
-        options = sys.argv[1:-3] + sys.argv[-2:]
+
+    if set(options).intersection({"--tty", "-t"}) and len(options) > 1:
+        if not options[0].startswith("-"):
+            video_file = sys.argv[-3]
+            options = sys.argv[1:-3] + sys.argv[-2:]
         if options.index("-t")+1 < len(options):
             tty = options[options.index("-t")+1]
         else:
