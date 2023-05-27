@@ -1,0 +1,3 @@
+python-opencv
+ffmpeg
+sox

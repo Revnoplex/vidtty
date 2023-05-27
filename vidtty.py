@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import shutil
 import signal
 import struct
 import subprocess
@@ -50,8 +51,6 @@ else:
 
 sys.excepthook = exception_handler
 
-os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
-
 
 def dump_frames(video_filename: str, fps: float):
     terminal_lines, terminal_columns = (lambda px: (px.lines, px.columns))(os.get_terminal_size())
@@ -79,7 +78,7 @@ def dump_frames(video_filename: str, fps: float):
     else:
         print("Extracting audio from video file...")
         try:
-            audio = subprocess.Popen(["ffmpeg", "-i", video_file, "-loglevel", "panic", "-f", "mp3",
+            audio = subprocess.Popen(["ffmpeg", "-nostdin", "-i", video_file, "-loglevel", "panic", "-f", "mp3",
                                       "pipe:1"],
                                      stdout=subprocess.PIPE)
         except FileNotFoundError:
@@ -204,8 +203,6 @@ lag = 0
 
 def file_print_frames(filename):
     global no_audio_required
-    if not no_audio_required:
-        pygame.init()
     with open(filename, "rb") as vidtxt_file:
         vidtxt_header = vidtxt_file.read(64)
         terminal_columns = int.from_bytes(vidtxt_header[8:12], "big", signed=False)
@@ -216,17 +213,15 @@ def file_print_frames(filename):
         vidtxt_file.seek(64, 0)
         if audio_size < 1:
             no_audio_required = True
-        if not no_audio_required:
-            try:
-                pygame.mixer.music.load(BytesIO(vidtxt_file.read(audio_size)))
-            except pygame.error:
-                print("\033[1;33mWarning\033[0m: Failed to load audio! Playing without audio...")
-                no_audio_required = True
         f_total_frames = \
             (os.stat(filename).st_size - frames_start_from) // ((terminal_columns - 1) * (terminal_lines - 1))
         vid_duration = (f_total_frames // fps) + (f_total_frames % fps) / fps
-    if not no_audio_required:
-        pygame.mixer.music.play()
+        if not no_audio_required:
+            audio = subprocess.Popen(["ffmpeg", "-nostdin", "-i", "-", "-loglevel", "panic", "-f", "wav", "pipe:1"],
+                                     stdin=vidtxt_file, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            audio_cmd = subprocess.Popen(["aplay", "--quiet"] if shutil.which("aplay") else ["play", "-q", "-V1", "-t",
+                                                                                             "wav", "-"],
+                                         stdin=audio.stdout)
     with open(filename, "rb") as vidtxt_file:
         vidtxt_file.seek(frames_start_from, 0)
         interval = 1 / fps
@@ -292,24 +287,15 @@ def file_print_frames(filename):
 def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                  child_error: Queue):
     global no_audio_required
-    if not no_audio_required:
-        pygame.init()
     print("Extracting audio from video file...")
     try:
-        audio = subprocess.Popen(["ffmpeg", "-i", video_file, "-loglevel", "panic", "-f", "mp3",
+        audio = subprocess.Popen(["ffmpeg", "-nostdin", "-i", video_file, "-loglevel", "panic", "-f", "wav",
                                   "pipe:1"],
                                  stdout=subprocess.PIPE)
     except FileNotFoundError:
         print(f"\033[1;31mError\033[0m: ffmpeg executable not found. please make sure you install ffmpeg or make sure "
               f"the executable is in one of your PATH directories.")
         exit()
-    else:
-        if not no_audio_required:
-            try:
-                pygame.mixer.music.load(BytesIO(audio.stdout.read()))
-            except pygame.error:
-                print("\033[1;33mWarning\033[0m: Failed to load audio! Playing without audio...")
-                no_audio_required = True
 
     wait_for = video_duration
     interval = 1 / frame_rate
@@ -328,8 +314,16 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
     std_scr = curses.initscr()
     curses.noecho()
     curses.cbreak()
+    audio_cmd = None
     if not no_audio_required:
-        pygame.mixer.music.play()
+        blank_sound = subprocess.Popen(["aplay", "--quiet"] if shutil.which("aplay") else ["play", "-q", "-V1", "-t",
+                                                                                           "wav", "-"],
+                                       stdin=subprocess.PIPE)
+        blank_sound.communicate(input=b'RIFF%\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00D\xac\x00\x00\x88X'
+                                      b'\x01\x00\x02\x00\x10\x00datat\x00\x00\x00\x00')
+        audio_cmd = subprocess.Popen(["aplay", "--quiet"] if shutil.which("aplay") else ["play", "-q", "-V1", "-t",
+                                                                                         "wav", "-"],
+                                     stdin=audio.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     current_interval = interval
     displayed_since = datetime.datetime.now()
     global lag
@@ -340,16 +334,17 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                 os.kill(os.getpid(), signal.SIGINT)
             start_time = datetime.datetime.now()
             terminal_lines = os.get_terminal_size().lines
-            if frames.qsize() < 1:
+            if frames.qsize() < 1 or current_frame == 100:
                 if not no_audio_required:
-                    pygame.mixer.music.pause()
+                    audio_cmd.send_signal(20)
                 std_scr.clear()
                 std_scr.addstr(0, 0, "Buffering...")
                 std_scr.refresh()
                 time.sleep(10)
                 std_scr.clear()
                 if not no_audio_required:
-                    pygame.mixer.music.unpause()
+                    audio_cmd.send_signal(18)
+                displayed_since + datetime.timedelta(seconds=10)
             frame_number, frame_list = frames.get(timeout=interval)
             time_elapsed = datetime.datetime.now() - displayed_since
             calculated_frames = round(frame_rate * time_elapsed.total_seconds())
@@ -463,13 +458,7 @@ if __name__ == '__main__':
             video_file = None
             exit(1)
     else:
-        try:
-            import pygame
-        except ModuleNotFoundError:
-            print("pygame not installed so there won't be any audio")
-            no_audio_required = True
-        else:
-            no_audio_required = False
+        no_audio_required = False
     if not os.path.exists(video_file):
         print(f"File \"{video_file}\" not found!")
         exit(1)
