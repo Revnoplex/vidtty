@@ -217,6 +217,12 @@ def file_print_frames(filename):
             (os.stat(filename).st_size - frames_start_from) // ((terminal_columns - 1) * (terminal_lines - 1))
         vid_duration = (f_total_frames // fps) + (f_total_frames % fps) / fps
         if not no_audio_required:
+            blank_sound = subprocess.Popen(
+                ["aplay", "--quiet"] if shutil.which("aplay") else ["play", "-q", "-V1", "-t",
+                                                                    "wav", "-"],
+                stdin=subprocess.PIPE)
+            blank_sound.communicate(input=b'RIFF%\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00D\xac\x00\x00\x88X'
+                                          b'\x01\x00\x02\x00\x10\x00datat\x00\x00\x00\x00')
             audio = subprocess.Popen(["ffmpeg", "-nostdin", "-i", "-", "-loglevel", "panic", "-f", "wav", "pipe:1"],
                                      stdin=vidtxt_file, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             audio_cmd = subprocess.Popen(["aplay", "--quiet"] if shutil.which("aplay") else ["play", "-q", "-V1", "-t",
