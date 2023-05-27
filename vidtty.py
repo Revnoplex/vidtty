@@ -334,7 +334,7 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                 os.kill(os.getpid(), signal.SIGINT)
             start_time = datetime.datetime.now()
             terminal_lines = os.get_terminal_size().lines
-            if frames.qsize() < 1 or current_frame == 100:
+            if frames.qsize() < 1:
                 if not no_audio_required:
                     audio_cmd.send_signal(20)
                 std_scr.clear()
