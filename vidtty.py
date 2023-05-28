@@ -83,8 +83,8 @@ def dump_frames(video_filename: str, fps: float):
                                      stdout=subprocess.PIPE)
         except FileNotFoundError:
             print(
-                f"\033[1;31mFatal\033[0m: ffmpeg executable not found. please make sure you install ffmpeg or make sure"
-                f" the executable is in one of your PATH directories.", file=sys.stderr)
+                f"\033[1;31mFatal\033[0m: ffmpeg executable not found. Please make sure ffmpeg is installed and make "
+                f"sure the executable is in your PATH.", file=sys.stderr)
             return
         else:
             audio_bytes = BytesIO(audio.stdout.read()).read()
@@ -299,8 +299,8 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                                   "pipe:1"],
                                  stdout=subprocess.PIPE)
     except FileNotFoundError:
-        print(f"\033[1;31mError\033[0m: ffmpeg executable not found. please make sure you install ffmpeg or make sure "
-              f"the executable is in one of your PATH directories.")
+        print(f"\033[1;31mError\033[0m: ffmpeg executable not found. Please make sure ffmpeg is installed and make sure"
+              f" the executable is in your PATH.")
         exit()
 
     wait_for = video_duration
@@ -408,7 +408,7 @@ if __name__ == '__main__':
     except ModuleNotFoundError:
         curses = None
         _curses = None
-        print(f"\033[1;31mFatal\033[0m: curses module not found. please make sure you have the package installed.")
+        print(f"\033[1;31mFatal\033[0m: curses module not found. Please make sure you have the package installed.")
         exit(1)
     video_file = sys.argv[-1]
     options = sys.argv[1:-1]
@@ -463,6 +463,19 @@ if __name__ == '__main__':
             print("No video file specified. Please specify one. mp4 files works the best")
             video_file = None
             exit(1)
+    elif not shutil.which("ffmpeg"):
+        print(f"\033[1;31mFatal\033[0m: ffmpeg executable not found. Please make sure ffmpeg is installed and make sure"
+              f" the executable is in your PATH.", file=sys.stderr)
+        print(f"To use without audio and bypass these errors, pass the -m or --no-audio argument")
+        no_audio_required = True
+        exit(1)
+    elif not (shutil.which("aplay") or shutil.which("play")):
+        print(f"\033[1;31mFatal\033[0m: aplay or play executable not found. "
+              f"Please make sure alsa-utils or sox is installed and make "
+              f"sure the executable is in your PATH.")
+        print(f"To use without audio and bypass these errors, pass the -m or --no-audio argument")
+        no_audio_required = True
+        exit(1)
     else:
         no_audio_required = False
     if not os.path.exists(video_file):
