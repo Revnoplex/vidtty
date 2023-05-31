@@ -108,9 +108,21 @@ def dump_frames(video_filename: str, fps: float):
             average_interval = sum(avg_interval_list) / len(avg_interval_list)
         average_fps = 1 // average_interval
         time_left = average_interval * (total_frames - current_frame)
-        print(f"\rRendering frame {current_frame} of {total_frames} "
-              f"at a rate of {average_fps} fps. ETA: "
-              f" {datetime.timedelta(seconds=time_left)}", end="")
+        progress_text = f"\x1b[7m\rDumping Frame: {current_frame}/{total_frames} " \
+                        f" Rate: {average_fps}/s ETA:" \
+                        f" {str(datetime.timedelta(seconds=time_left)).split('.')[0]}"
+        percentage = f"[ {round(current_frame / total_frames*100)}% ]"
+        progress_text = \
+            progress_text + " "*(os.get_terminal_size().columns-((len(progress_text)-5)+len(percentage))) + percentage
+        # print("\r" + repr(progress_text), end="")
+        progress_pos = round(current_frame / total_frames*os.get_terminal_size().columns) + 5
+        # print(progress_pos)
+        if progress_pos > 1:
+            progress_text = progress_text[:progress_pos+1] + "\x1b[0m" + progress_text[progress_pos+1:]
+        else:
+            progress_text = progress_text[:2] + "\x1b[0m" + progress_text[:2]
+        # print("\r" + progress_text[progress_pos+1:], end="")
+        print(progress_text, end="")
         status, vid_frame = video.read()
         raw_frame = cv2.imencode(".jpg", vid_frame)[1].tobytes()
         frame = Image.open(BytesIO(raw_frame))
@@ -145,7 +157,6 @@ def dump_frames(video_filename: str, fps: float):
 def render_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                   error: Queue, video_filename: str, total_frame_count: int):
     try:
-        print("beginning to render frames...")
         current_frame = 0
         vid = cv2.VideoCapture(video_filename)
         avg_interval_list = []
@@ -266,10 +277,22 @@ def file_print_frames(filename):
                             else:
                                 std_scr.addstr(line, 0, line_contents.decode("utf-8"))
                     if debug_mode:
-                        std_scr.addstr(terminal_lines - 1, 0,
-                                       f'\rOutputted frame {frame_number}(approx. {calculated_frames})/{f_total_frames}'
-                                       f' {time_elapsed}/{datetime.timedelta(seconds=vid_duration)} lagging '
-                                       f'{frames_behind} frames behind')
+                        debug_text = f"[Frame: ({calculated_frames},{frame_number},{frames_behind}), " \
+                                     f"{str(time_elapsed).split('.')[0]}]"
+                        end_text = f"[{str(datetime.timedelta(seconds=vid_duration)).split('.')[0]}, " \
+                                   f"{f_total_frames} frames, " \
+                                   f"{round(calculated_frames / f_total_frames * 100, 1)}%] "
+                        if len(debug_text) < current_terminal_columns - 1:
+                            debug_text = debug_text + " " * (
+                                          current_terminal_columns - (len(debug_text) + len(end_text))) + end_text
+                        progress = round(calculated_frames / f_total_frames * current_terminal_columns)
+                        for idx, char in enumerate(debug_text):
+                            if idx < current_terminal_columns - 1:
+                                f_format = curses.A_STANDOUT if idx < progress else curses.A_NORMAL
+                                try:
+                                    std_scr.addch(current_terminal_lines - 1, idx, char, f_format)
+                                except _curses.error:
+                                    pass
                 except _curses.error:
                     continue
                 frame_number += 1
@@ -313,9 +336,9 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
             break
         if child_error.qsize() > 0:
             return child_error.get()
-        print(f"\rDumping frame {dumped_frames.value} of {total_frames} "
-              f"at a rate of {average_fps} fps. Video playback will approximately start in"
-              f" {datetime.timedelta(seconds=(time_left-video_duration))}", end="")
+        print(f"\rRendering Frame: {dumped_frames.value}/{total_frames} "
+              f"Rate: {average_fps}/s Playback ETA:"
+              f" {str(datetime.timedelta(seconds=(time_left-video_duration))).split('.')[0]}", end="")
 
     std_scr = curses.initscr()
     curses.noecho()
@@ -333,6 +356,7 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
     current_interval = interval
     displayed_since = datetime.datetime.now()
     global lag
+    race_condition_error = False
 
     try:
         for current_frame in range(total_frames):
@@ -340,17 +364,20 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                 os.kill(os.getpid(), signal.SIGINT)
             start_time = datetime.datetime.now()
             terminal_lines = os.get_terminal_size().lines
+            terminal_columns = os.get_terminal_size().columns
             if frames.qsize() < 1:
                 if not no_audio_required:
-                    audio_cmd.send_signal(20)
-                std_scr.clear()
-                std_scr.addstr(0, 0, "Buffering...")
-                std_scr.refresh()
-                time.sleep(10)
-                std_scr.clear()
-                if not no_audio_required:
-                    audio_cmd.send_signal(18)
-                displayed_since + datetime.timedelta(seconds=10)
+                    audio_cmd.kill()
+                race_condition_error = True
+                break
+                # std_scr.clear()
+                # std_scr.addstr(0, 0, "Buffering...")
+                # std_scr.refresh()
+                # time.sleep(10)
+                # std_scr.clear()
+                # if not no_audio_required:
+                #     audio_cmd.send_signal(18)
+                # displayed_since + datetime.timedelta(seconds=10)
             frame_number, frame_list = frames.get(timeout=interval)
             time_elapsed = datetime.datetime.now() - displayed_since
             calculated_frames = round(frame_rate * time_elapsed.total_seconds())
@@ -368,10 +395,21 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                         std_scr.addstr(frame[0], 0, frame[1])
                     h_line_idx += 1
                 if debug_mode:
-                    std_scr.addstr(terminal_lines - 1, 0,
-                                   f'\rOutputted frame {frame_number}(approx. {calculated_frames})/{total_frames} '
-                                   f'{time_elapsed}/{datetime.timedelta(seconds=video_duration)} lagging '
-                                   f'{frames_behind} frames behind')
+                    debug_text = f"[Frame: ({calculated_frames},{frame_number},{frames_behind}), " \
+                                 f"{str(time_elapsed).split('.')[0]}]"
+                    end_text = f"[{str(datetime.timedelta(seconds=video_duration)).split('.')[0]}, " \
+                               f"{total_frames} frames, " \
+                               f"{round(calculated_frames/total_frames*100, 1)}%] "
+                    if len(debug_text) < terminal_columns - 1:
+                        debug_text = debug_text + " "*(terminal_columns-(len(debug_text)+len(end_text))) + end_text
+                    progress = round(calculated_frames/total_frames*terminal_columns)
+                    for idx, char in enumerate(debug_text):
+                        if idx < terminal_columns - 1:
+                            f_format = curses.A_STANDOUT if idx < progress else curses.A_NORMAL
+                            try:
+                                std_scr.addch(terminal_lines - 1, idx, char, f_format)
+                            except _curses.error:
+                                pass
             except _curses.error:
                 continue
             duration = (datetime.datetime.now() - start_time).total_seconds()
@@ -392,6 +430,8 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
         curses.endwin()
         if child_error.qsize() > 0:
             return child_error.get()
+        if race_condition_error:
+            exit(2)
 
 
 if __name__ == '__main__':
@@ -505,7 +545,7 @@ if __name__ == '__main__':
                          name="Frame Renderer")
             try:
                 p2 = Process(target=print_frames, args=(queue, shared_dumped_frames, shared_dumping_interval,
-                                                        shared_child_error))
+                                                        shared_child_error,))
                 p1.exception = exception_handler
                 p1.start()
                 child_error_state = print_frames(queue, shared_dumped_frames, shared_dumping_interval,
