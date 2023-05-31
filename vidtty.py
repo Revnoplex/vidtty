@@ -78,9 +78,11 @@ def dump_frames(video_filename: str, fps: float):
     else:
         print("Extracting audio from video file...")
         try:
-            audio = subprocess.Popen(["ffmpeg", "-nostdin", "-i", video_file, "-loglevel", "panic", "-f", "mp3",
-                                      "pipe:1"],
-                                     stdout=subprocess.PIPE)
+            ffmpeg_options = ["ffmpeg", "-nostdin"] + \
+                             (["-reconnect", "1", "-reconnect_streamed", "1",
+                              "-reconnect_delay_max", "5"] if url else []) + \
+                             ["-i", video_file, "-loglevel", "panic", "-f", "mp3", "pipe:1"]
+            audio = subprocess.Popen(ffmpeg_options, stdout=subprocess.PIPE)
         except FileNotFoundError:
             print(
                 f"\033[1;31mFatal\033[0m: ffmpeg executable not found. Please make sure ffmpeg is installed and make "
@@ -106,7 +108,7 @@ def dump_frames(video_filename: str, fps: float):
         average_interval = 1.0
         if len(avg_interval_list) > 0:
             average_interval = sum(avg_interval_list) / len(avg_interval_list)
-        average_fps = 1 // average_interval
+        average_fps = round(1 / average_interval, 1)
         time_left = average_interval * (total_frames - current_frame)
         progress_text = f"\x1b[7m\rDumping Frame: {current_frame}/{total_frames} " \
                         f" Rate: {average_fps}/s ETA:" \
@@ -318,9 +320,11 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
     global no_audio_required
     print("Extracting audio from video file...")
     try:
-        audio = subprocess.Popen(["ffmpeg", "-nostdin", "-i", video_file, "-loglevel", "panic", "-f", "wav",
-                                  "pipe:1"],
-                                 stdout=subprocess.PIPE)
+        ffmpeg_options = ["ffmpeg", "-nostdin"] + \
+                         (["-reconnect", "1", "-reconnect_streamed", "1",
+                          "-reconnect_delay_max", "5"] if url else []) + \
+                         ["-i", video_file, "-loglevel", "panic", "-f", "wav", "pipe:1"]
+        audio = subprocess.Popen(ffmpeg_options, stdout=subprocess.PIPE)
     except FileNotFoundError:
         print(f"\033[1;31mError\033[0m: ffmpeg executable not found. Please make sure ffmpeg is installed and make sure"
               f" the executable is in your PATH.")
@@ -330,7 +334,7 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
     interval = 1 / frame_rate
 
     while True:
-        average_fps = 1 // dumping_interval.value
+        average_fps = round(1 / dumping_interval.value, 1)
         time_left = dumping_interval.value * (total_frames-dumped_frames.value)
         if not time_left > wait_for:
             break
@@ -518,12 +522,16 @@ if __name__ == '__main__':
         exit(1)
     else:
         no_audio_required = False
-    if not os.path.exists(video_file):
+    url = False
+    if video_file.startswith("http://") or video_file.startswith("https://"):
+        url = True
+    if not url and not os.path.exists(video_file):
         print(f"File \"{video_file}\" not found!")
         exit(1)
-    with open(video_file, "rb") as vidtxt_check:
-        first_8 = vidtxt_check.read(8)
-    if video_file.endswith(".vidtxt") or first_8 == b'VIDTXT\x00\x00':
+    if not url:
+        with open(video_file, "rb") as vidtxt_check:
+            first_8 = vidtxt_check.read(8)
+    if (not url) and (video_file.endswith(".vidtxt") or first_8 == b'VIDTXT\x00\x00'):
         file_print_frames(video_file)
     else:
         video = cv2.VideoCapture(video_file)
