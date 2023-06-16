@@ -19,15 +19,15 @@ This program has only been tested to work on some Linux and macOS environments l
 | Termux 0.118.0 (on Android 13) | AArch64 (arm64)| python 3.11              |
 
 
-The program has been tested to work on python 3.8 and later, there may be some issues installing pygame in python 3.11, which is why it is recommended to use python 3.10 for the best compatibility.
+The program has been tested to work on python 3.8 and later.
 
 It might work on Windows if you use cygwin, Otherwise you will manually need to install a curses package, and you may run into environment related errors such as the behaviour of shared memory objects.
 
-Only mp4 files have been tested and most are guaranteed to work. Opencv and/or ffmpeg and/or pygame might not support some formats
+Only mp4 files have been tested and most are guaranteed to work. OpenCV and/or FFmpeg and might not support some formats.
 
 
 ## Installing Dependencies
-This program requires both python packages and other packages than can't be installed with pip alone.
+This program requires both python packages and binary packages than can't be installed with pip alone.
 
 ### Installing Python dependencies
 Just install the packages in the [requirements.txt](./requirements.txt) file
@@ -35,10 +35,10 @@ Just install the packages in the [requirements.txt](./requirements.txt) file
 python3 -m pip install -r requirements.txt
 ```
 
-### Installing Other Dependencies
-The other dependencies are listed in the [non-pip-requirements.txt](./non-pip-requirements.txt) file. You should be able to install them using your package manager but the names for the opencv package may vary. 
+### Installing Binary Dependencies
+The binary dependencies are listed in the [binary-requirements.txt](./binary-requirements.txt) file. You should be able to install them using your package manager but the names for the opencv package may vary. 
 
-e.g., The package name for opencv in the archlinux repositories is `python-opencv` while the package name in the ubuntu repositories is `python3-opencv`
+e.g., The package name for opencv in the archlinux repositories is `python-opencv` while the package name in the ubuntu repositories is `python3-opencv` while in other repositories it might be called `opencv-python`. One of these names should work 
 
 If you can't seem to install opencv, you can install the unofficial python package:
 ```sh
