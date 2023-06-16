@@ -38,7 +38,7 @@ python3 -m pip install -r requirements.txt
 ### Installing Binary Dependencies
 The binary dependencies are listed in the [binary-requirements.txt](./binary-requirements.txt) file. You should be able to install them using your package manager but the names for the opencv package may vary. 
 
-e.g., The package name for opencv in the archlinux repositories is `python-opencv` while the package name in the ubuntu repositories is `python3-opencv` while in other repositories it might be called `opencv-python`. One of these names should work 
+e.g., The package name for opencv in the archlinux repositories is `python-opencv`, while the package name in the ubuntu repositories is `python3-opencv`, while in other repositories it might be called `opencv-python`. One of these names should work 
 
 If you can't seem to install opencv, you can install the unofficial python package:
 ```sh
