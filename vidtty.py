@@ -439,7 +439,7 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
 
 
 if __name__ == '__main__':
-    print("vidtty v1.1.0")
+    print("vidtty v1.0.0")
     if sys.platform not in ["linux", "darwin"]:
         print("\033[1;33mWarning\033[0m: This version of vidtty has only been tested to on Unix based OSes such as"
               " Linux or MacOS. \nIf you are running this program in Windows, using cygwin is recommended. "
