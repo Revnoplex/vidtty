@@ -1,6 +1,7 @@
 ![Python](https://img.shields.io/badge/-Python-14354C?style=for-the-badge&logo=python&logoColor=FFD43B)
 ![FFmpeg](https://img.shields.io/badge/-FFmpeg-4d853a?style=for-the-badge&logo=ffmpeg)
 ![open-cv](https://img.shields.io/badge/-OpenCV-000000?style=for-the-badge&logo=opencv)
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/Revnoplex/vidtty?style=for-the-badge&logo=github)
 # Vidtty
 A command line based video player written in python that converts and plays videos using ascii characters
 
