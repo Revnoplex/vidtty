@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import shutil
 import signal
 import struct
@@ -13,7 +14,6 @@ import datetime
 from types import TracebackType
 from typing import Union
 from PIL import Image
-import cv2
 import os
 
 
@@ -99,12 +99,18 @@ def dump_frames(video_filename: str, fps: float):
     print(f"Writing to {to_write_name}...")
     file_to_write.write(mem_file)
     avg_interval_list = []
+    raw_video = subprocess.Popen(["ffmpeg", "-nostdin", "-i", video_filename, "-loglevel", "error", "-s",
+                                  f"{terminal_columns}x{terminal_lines}", "-c:v", "bmp", "-f", "rawvideo", "-an",
+                                  "pipe:1"],
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
     current_frame = 0
     while True:
         start_time = datetime.datetime.now()
-        if not video.isOpened():
-            print("\033[1;31mFatal\033[0m: Failed to open video", file=sys.stderr)
-            return
+        # if not video.isOpened():
+        #     print("\033[1;31mFatal\033[0m: Failed to open video", file=sys.stderr)
+        #     return
+        # need new fail checker
         average_interval = 1.0
         if len(avg_interval_list) > 0:
             average_interval = sum(avg_interval_list) / len(avg_interval_list)
@@ -125,17 +131,23 @@ def dump_frames(video_filename: str, fps: float):
             progress_text = progress_text[:2] + "\x1b[0m" + progress_text[:2]
         # print("\r" + progress_text[progress_pos+1:], end="")
         print(progress_text, end="")
-        status, vid_frame = video.read()
-        raw_frame = cv2.imencode(".bmp", vid_frame)[1].tobytes()
-        frame = Image.open(BytesIO(raw_frame))
-        resized_frame = frame.resize((terminal_columns, terminal_lines))
-        img_data = resized_frame.getdata()
+        raw_video.stdout.read(2)
+        current_size = int.from_bytes(raw_video.stdout.read(4), "little", signed=False)
+        if current_size >= 6:
+            raw_video_bin = b'BM' + current_size.to_bytes(4, "little", signed=False) + \
+                            raw_video.stdout.read(current_size - 6)
+        else:
+            break
+        if current_size < 1:
+            break
+        frame = Image.open(BytesIO(raw_video_bin))
+        img_data = frame.getdata()
         ascii_gradients = [' ', '.', "'", '`', '^', '"', ',', ':', ';', 'I', 'l', '!', 'i', '>', '<', '~', '+',
                            '_', '-', '?', ']', '[', '}', '{', '1', ')', '(', '|', '\\', '/', 't', 'f', 'j', 'r',
                            'x', 'n', 'u', 'v', 'c', 'z', 'X', 'Y', 'U', 'J', 'C', 'L', 'Q', '0', 'O', 'Z', 'm',
                            'w', 'q', 'p', 'd', 'b', 'k', 'h', 'a', 'o', '*', '#', 'M', 'W', '&', '8', '%', 'B',
                            '@', '$']
-        frame_width = resized_frame.width
+        frame_width = frame.width
         # frame_list: list[list[int, list[list[str, int]]]] = []
         frame_list = ""
         line = ""
@@ -160,31 +172,37 @@ def render_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                   error: Queue, video_filename: str, total_frame_count: int):
     try:
         current_frame = 0
-        vid = cv2.VideoCapture(video_filename)
         avg_interval_list = []
         terminal_lines, terminal_columns = (lambda px: (px.lines, px.columns))(os.get_terminal_size())
+        raw_video = subprocess.Popen(["ffmpeg", "-nostdin", "-i", video_filename, "-loglevel", "error", "-s",
+                                      f"{terminal_columns}x{terminal_lines}", "-c:v", "bmp", "-f", "rawvideo", "-an",
+                                      "pipe:1"],
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         while True:
             start_time = datetime.datetime.now()
-            if not vid.isOpened():
-                print("\033[1;31mFatal\033[0m: Failed to open video", file=sys.stderr)
-                return
             average_interval = 1.0
             if len(avg_interval_list) > 0:
                 average_interval = sum(avg_interval_list)/len(avg_interval_list)
             dumping_interval.value = average_interval
             dumped_frames.value = current_frame
-            status, vid_frame = vid.read()
-            raw_frame = cv2.imencode(".bmp", vid_frame)[1].tobytes()
-            frame = Image.open(BytesIO(raw_frame))
-            resized_frame = frame.resize((terminal_columns, terminal_lines))
+            raw_video.stdout.read(2)
+            current_size = int.from_bytes(raw_video.stdout.read(4), "little", signed=False)
+            if current_size >= 6:
+                raw_video_bin = b'BM' + current_size.to_bytes(4, "little", signed=False) + \
+                                raw_video.stdout.read(current_size - 6)
+            else:
+                break
+            if current_size < 1:
+                break
+            frame = Image.open(BytesIO(raw_video_bin))
 
-            img_data = resized_frame.getdata()
+            img_data = frame.getdata()
             ascii_gradients = [' ', '.', "'", '`', '^', '"', ',', ':', ';', 'I', 'l', '!', 'i', '>', '<', '~', '+',
                                '_', '-', '?', ']', '[', '}', '{', '1', ')', '(', '|', '\\', '/', 't', 'f', 'j', 'r',
                                'x', 'n', 'u', 'v', 'c', 'z', 'X', 'Y', 'U', 'J', 'C', 'L', 'Q', '0', 'O', 'Z', 'm',
                                'w', 'q', 'p', 'd', 'b', 'k', 'h', 'a', 'o', '*', '#', 'M', 'W', '&', '8', '%', 'B',
                                '@', '$']
-            frame_width = resized_frame.width
+            frame_width = frame.width
             h_line_idx = 0
             frame_list: list[list[int, list[list[str, int]]]] = []
             frame_num = 0
@@ -439,7 +457,7 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
 
 
 if __name__ == '__main__':
-    print("vidtty v1.0.0")
+    print("vidtty v1.1.0")
     if sys.platform not in ["linux", "darwin"]:
         print("\033[1;33mWarning\033[0m: This version of vidtty has only been tested to on Unix based OSes such as"
               " Linux or MacOS. \nIf you are running this program in Windows, using cygwin is recommended. "
@@ -534,9 +552,13 @@ if __name__ == '__main__':
     if (not url) and (video_file.endswith(".vidtxt") or first_8 == b'VIDTXT\x00\x00'):
         file_print_frames(video_file)
     else:
-        video = cv2.VideoCapture(video_file)
-        total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-        frame_rate = video.get(cv2.CAP_PROP_FPS)
+        ffprobe = subprocess.Popen(["ffprobe", "-show_streams", "-of", "json", video_file],
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        ffprobe.wait()
+        file_metadata = json.load(ffprobe.stdout).get('streams')[0]
+        total_frames = int(file_metadata.get("nb_frames"))
+        fps_fraction = file_metadata.get("r_frame_rate").split("/")
+        frame_rate = float(int(fps_fraction[0])/int(fps_fraction[1]))
         frame_rate = 30.0 if not frame_rate else frame_rate
         video_duration = (total_frames // frame_rate) + (total_frames % frame_rate) / frame_rate
         global_interval = (1 / frame_rate)

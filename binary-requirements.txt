@@ -1,3 +1,2 @@
-python-opencv # could also be opencv-python or python3-opencv
 ffmpeg
 sox # you can skip this dependency if alsa-utils is installable on your system
