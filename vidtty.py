@@ -126,7 +126,7 @@ def dump_frames(video_filename: str, fps: float):
         # print("\r" + progress_text[progress_pos+1:], end="")
         print(progress_text, end="")
         status, vid_frame = video.read()
-        raw_frame = cv2.imencode(".jpg", vid_frame)[1].tobytes()
+        raw_frame = cv2.imencode(".bmp", vid_frame)[1].tobytes()
         frame = Image.open(BytesIO(raw_frame))
         resized_frame = frame.resize((terminal_columns, terminal_lines))
         img_data = resized_frame.getdata()
@@ -174,7 +174,7 @@ def render_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
             dumping_interval.value = average_interval
             dumped_frames.value = current_frame
             status, vid_frame = vid.read()
-            raw_frame = cv2.imencode(".jpg", vid_frame)[1].tobytes()
+            raw_frame = cv2.imencode(".bmp", vid_frame)[1].tobytes()
             frame = Image.open(BytesIO(raw_frame))
             resized_frame = frame.resize((terminal_columns, terminal_lines))
 
