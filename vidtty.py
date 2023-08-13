@@ -8,9 +8,11 @@ import traceback
 from io import BytesIO
 import time
 from multiprocessing import Manager, Process, Queue, Value
+import queue as queue_mod
 import sys
 import ctypes
 import datetime
+import threading
 from types import TracebackType
 from typing import Union
 from PIL import Image
@@ -52,6 +54,26 @@ else:
 sys.excepthook = exception_handler
 
 
+def check_for_errors(command: subprocess.Popen):
+    if command.returncode:
+        return command.stderr.read()
+
+    def enqueue_output(out, pq):
+        pq.put(out.read())
+
+    q = queue_mod.Queue()
+    t = threading.Thread(target=enqueue_output, args=(command.stderr, q))
+    t.daemon = True  # thread dies with the program
+    t.start()
+
+    try:
+        line = q.get(timeout=.1)
+    except queue_mod.Empty:
+        return
+    else:
+        return line
+
+
 def dump_frames(video_filename: str, fps: float):
     terminal_lines, terminal_columns = (lambda px: (px.lines, px.columns))(os.get_terminal_size())
     to_write_name = f'{"".join(video_filename.rsplit(".", 1)[:-1])}.vidtxt'
@@ -64,7 +86,7 @@ def dump_frames(video_filename: str, fps: float):
     # full file layout: header to 0x3F (64 bytes), audio from 0x41, frames from value of x
     # x = frame_start_address
     if fps == float("inf"):
-        print("033[1;31mFatal\033[0m: Cannot dump frames as the fps value cannot be stored as a 64 bit double")
+        print("\x1b[1;31mFatal\x1b[0m: Cannot dump frames as the fps value cannot be stored as a 64 bit double")
         return
     # byte numbers:      0   1   2   3   4   5   6   7                            8 to 11
     initial_header = b'\x56\x49\x44\x54\x58\x54\x00\x00' + terminal_columns.to_bytes(4, "big", signed=False) + \
@@ -72,22 +94,30 @@ def dump_frames(video_filename: str, fps: float):
     #                                          12 to 15                 16 to 23
     #                           24 to 63
     mem_file = initial_header + b'\x00' * (64 - len(initial_header))
+    raw_video = subprocess.Popen(["ffmpeg", "-nostdin", "-i", video_filename, "-loglevel", "error", "-s",
+                                  f"{terminal_columns}x{terminal_lines}", "-c:v", "bmp", "-f", "rawvideo", "-an",
+                                  "pipe:1"],
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    raw_video_errors = check_for_errors(raw_video)
+    if raw_video_errors:
+        print("\x1b[1;31mFatal\x1b[0m: Failed to read video:")
+        print(raw_video_errors.decode("utf-8"))
+        return
     if no_audio_required:
         # 24 to 32
         mem_file = mem_file[:24] + b'\x00' * 8 + mem_file[32:]
     else:
         print("Extracting audio from video file...")
-        try:
-            ffmpeg_options = ["ffmpeg", "-nostdin"] + \
-                             (["-reconnect", "1", "-reconnect_streamed", "1",
-                              "-reconnect_delay_max", "5"] if url else []) + \
-                             ["-i", video_file, "-loglevel", "panic", "-f", "mp3", "pipe:1"]
-            audio = subprocess.Popen(ffmpeg_options, stdout=subprocess.PIPE)
-        except FileNotFoundError:
-            print(
-                f"\033[1;31mFatal\033[0m: ffmpeg executable not found. Please make sure ffmpeg is installed and make "
-                f"sure the executable is in your PATH.", file=sys.stderr)
-            return
+        ffmpeg_options = ["ffmpeg", "-nostdin"] + (["-reconnect", "1", "-reconnect_streamed", "1",
+                                                    "-reconnect_delay_max", "5"] if url else []) + \
+                         ["-i", video_file, "-loglevel", "error", "-f", "mp3", "pipe:1"]
+        audio = subprocess.Popen(ffmpeg_options, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        audio_errors = check_for_errors(audio)
+        if audio_errors:
+            print("\x1b[1;33mWarning\x1b[0m: Extracting audio failed:")
+            print(audio_errors.decode("utf-8"))
+            print("Continuing without audio...")
+            mem_file = mem_file[:24] + b'\x00' * 8 + mem_file[32:]
         else:
             audio_bytes = BytesIO(audio.stdout.read()).read()
             # 24 to 32
@@ -99,16 +129,12 @@ def dump_frames(video_filename: str, fps: float):
     print(f"Writing to {to_write_name}...")
     file_to_write.write(mem_file)
     avg_interval_list = []
-    raw_video = subprocess.Popen(["ffmpeg", "-nostdin", "-i", video_filename, "-loglevel", "error", "-s",
-                                  f"{terminal_columns}x{terminal_lines}", "-c:v", "bmp", "-f", "rawvideo", "-an",
-                                  "pipe:1"],
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     current_frame = 0
     while True:
         start_time = datetime.datetime.now()
         # if not video.isOpened():
-        #     print("\033[1;31mFatal\033[0m: Failed to open video", file=sys.stderr)
+        #     print("\x1b[1;31mFatal\x1b[0m: Failed to open video", file=sys.stderr)
         #     return
         # need new fail checker
         average_interval = 1.0
@@ -178,6 +204,11 @@ def render_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                                       f"{terminal_columns}x{terminal_lines}", "-c:v", "bmp", "-f", "rawvideo", "-an",
                                       "pipe:1"],
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        raw_video_errors = check_for_errors(raw_video)
+        if raw_video_errors:
+            print("\x1b[1;31mFatal\x1b[0m: Failed to read video:")
+            print(raw_video_errors.decode("utf-8"))
+            return
         while True:
             start_time = datetime.datetime.now()
             average_interval = 1.0
@@ -254,11 +285,19 @@ def file_print_frames(filename):
                 stdin=subprocess.PIPE)
             blank_sound.communicate(input=b'RIFF%\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00D\xac\x00\x00\x88X'
                                           b'\x01\x00\x02\x00\x10\x00datat\x00\x00\x00\x00')
-            audio = subprocess.Popen(["ffmpeg", "-nostdin", "-i", "-", "-loglevel", "panic", "-f", "wav", "pipe:1"],
+            audio = subprocess.Popen(["ffmpeg", "-nostdin", "-i", "-", "-loglevel", "error", "-f", "wav", "pipe:1"],
                                      stdin=vidtxt_file, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            audio_errors = check_for_errors(audio)
+            if audio_errors:
+                print("\x1b[1;31mFatal\x1b[0m: Failed to read audio:")
+                print(audio_errors.decode("utf-8"))
             audio_cmd = subprocess.Popen(["aplay", "--quiet"] if shutil.which("aplay") else ["play", "-q", "-V1", "-t",
                                                                                              "wav", "-"],
-                                         stdin=audio.stdout)
+                                         stdin=audio.stdout, stderr=subprocess.PIPE)
+            audio_cmd_errors = check_for_errors(audio_cmd)
+            if audio_cmd_errors:
+                print("\x1b[1;31mFatal\x1b[0m: Failed to play audio:")
+                print(audio_cmd_errors.decode("utf-8"))
     with open(filename, "rb") as vidtxt_file:
         vidtxt_file.seek(frames_start_from, 0)
         interval = 1 / fps
@@ -336,18 +375,20 @@ def file_print_frames(filename):
 def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                  child_error: Queue):
     global no_audio_required
-    print("Extracting audio from video file...")
-    try:
-        ffmpeg_options = ["ffmpeg", "-nostdin"] + \
-                         (["-reconnect", "1", "-reconnect_streamed", "1",
-                          "-reconnect_delay_max", "5"] if url else []) + \
-                         ["-i", video_file, "-loglevel", "panic", "-f", "wav", "pipe:1"]
-        audio = subprocess.Popen(ffmpeg_options, stdout=subprocess.PIPE)
-    except FileNotFoundError:
-        print(f"\033[1;31mError\033[0m: ffmpeg executable not found. Please make sure ffmpeg is installed and make sure"
-              f" the executable is in your PATH.")
-        exit()
-
+    if not no_audio_required:
+        print("Extracting audio from video file...")
+        ffmpeg_options = ["ffmpeg", "-nostdin"] + (["-reconnect", "1", "-reconnect_streamed", "1",
+                                                    "-reconnect_delay_max", "5"] if url else []) + \
+                         ["-i", video_file, "-loglevel", "error", "-f", "wav", "pipe:1"]
+        audio = subprocess.Popen(ffmpeg_options, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        audio_errors = check_for_errors(audio)
+        if audio_errors:
+            print("\x1b[1;33mWarning\x1b[0m: Extracting audio failed:")
+            print(audio_errors.decode("utf-8"))
+            print("Continuing without audio...")
+            no_audio_required = True
+    else:
+        audio = None
     wait_for = video_duration
     interval = 1 / frame_rate
 
@@ -375,6 +416,10 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
         audio_cmd = subprocess.Popen(["aplay", "--quiet"] if shutil.which("aplay") else ["play", "-q", "-V1", "-t",
                                                                                          "wav", "-"],
                                      stdin=audio.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        audio_cmd_errors = check_for_errors(audio_cmd)
+        if audio_cmd_errors:
+            print("\x1b[1;31mFatal\x1b[0m: Failed to read audio:")
+            print(audio_cmd_errors.decode("utf-8"))
     current_interval = interval
     displayed_since = datetime.datetime.now()
     global lag
@@ -459,7 +504,7 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
 if __name__ == '__main__':
     print("vidtty v1.1.0")
     if sys.platform not in ["linux", "darwin"]:
-        print("\033[1;33mWarning\033[0m: This version of vidtty has only been tested to on Unix based OSes such as"
+        print("\x1b[1;33mWarning\x1b[0m: This version of vidtty has only been tested to on Unix based OSes such as"
               " Linux or MacOS. \nIf you are running this program in Windows, using cygwin is recommended. "
               "\nYou may also need to install the curses module manually."
               "\nThe behaviour of the program could be unpredictable.")
@@ -470,12 +515,12 @@ if __name__ == '__main__':
     except ModuleNotFoundError:
         curses = None
         _curses = None
-        print(f"\033[1;31mFatal\033[0m: curses module not found. Please make sure you have the package installed.")
+        print(f"\x1b[1;31mFatal\x1b[0m: curses module not found. Please make sure you have the package installed.")
         exit(1)
     video_file = sys.argv[-1]
     options = sys.argv[1:-1]
     if set(options + [video_file]).intersection({"--help", "-h"}) or len(sys.argv) < 2:
-        print("\033[1mHelp Menu\033[0m")
+        print("\x1b[1mHelp Menu\x1b[0m")
         print("Usage vidtty [OPTIONS] FILE")
         print("-h --help\tHelp - displays this menu")
         print("-t --tty\tTTY - Send output to another file or tty instead of the default stdout")
@@ -517,6 +562,11 @@ if __name__ == '__main__':
         debug_mode = bool(set(options).intersection({"--debug", "-b"}))
     else:
         debug_mode = False
+    if not shutil.which("ffmpeg"):
+        print(f"\x1b[1;31mFatal\x1b[0m: ffmpeg executable not found. Please make sure ffmpeg is installed and make sure"
+              f" the executable is in your PATH.", file=sys.stderr)
+        print(f"To use without audio and bypass these errors, pass the -m or --no-audio argument")
+        exit(1)
     if set(options).intersection({"--no-audio", "-m"}):
         no_audio_required = True
         if len(sys.argv) > 2:
@@ -525,14 +575,8 @@ if __name__ == '__main__':
             print("No video file specified. Please specify one. mp4 files works the best")
             video_file = None
             exit(1)
-    elif not shutil.which("ffmpeg"):
-        print(f"\033[1;31mFatal\033[0m: ffmpeg executable not found. Please make sure ffmpeg is installed and make sure"
-              f" the executable is in your PATH.", file=sys.stderr)
-        print(f"To use without audio and bypass these errors, pass the -m or --no-audio argument")
-        no_audio_required = True
-        exit(1)
     elif not (shutil.which("aplay") or shutil.which("play")):
-        print(f"\033[1;31mFatal\033[0m: aplay or play executable not found. "
+        print(f"\x1b[1;31mFatal\x1b[0m: aplay or play executable not found. "
               f"Please make sure alsa-utils or sox is installed and make "
               f"sure the executable is in your PATH.")
         print(f"To use without audio and bypass these errors, pass the -m or --no-audio argument")
@@ -552,13 +596,25 @@ if __name__ == '__main__':
     if (not url) and (video_file.endswith(".vidtxt") or first_8 == b'VIDTXT\x00\x00'):
         file_print_frames(video_file)
     else:
-        ffprobe = subprocess.Popen(["ffprobe", "-show_streams", "-of", "json", video_file],
+        ffprobe = subprocess.Popen(["ffprobe", "-hide_banner", "-show_streams", "-of", "json", video_file],
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         ffprobe.wait()
-        file_metadata = json.load(ffprobe.stdout).get('streams')[0]
-        total_frames = int(file_metadata.get("nb_frames"))
-        fps_fraction = file_metadata.get("r_frame_rate").split("/")
-        frame_rate = float(int(fps_fraction[0])/int(fps_fraction[1]))
+        if ffprobe.returncode:
+            print("\x1b[1;31mFatal\x1b[0m: Failed to extract video metadata:")
+            print(ffprobe.stderr.read().decode("utf-8"))
+            exit(1)
+        try:
+            file_metadata = json.load(ffprobe.stdout).get('streams')[0]
+            total_frames = int(file_metadata.get("nb_frames"))
+            fps_fraction = file_metadata.get("r_frame_rate").split("/")
+            frame_rate = float(int(fps_fraction[0])/int(fps_fraction[1]))
+        except (ValueError, TypeError, IndexError, json.JSONDecodeError) as err:
+            err: BaseException
+            print("\x1b[1;31mFatal\x1b[0m: Failed to extract video metadata:\nUnexpected or missing metadata. "
+                  "Is this file a video?")
+            if debug_mode:
+                print(str(err))
+            exit(1)
         frame_rate = 30.0 if not frame_rate else frame_rate
         video_duration = (total_frames // frame_rate) + (total_frames % frame_rate) / frame_rate
         global_interval = (1 / frame_rate)
