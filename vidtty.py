@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import pathlib
 import shutil
 import signal
 import struct
@@ -54,9 +55,18 @@ else:
 sys.excepthook = exception_handler
 
 
-def check_for_errors(command: subprocess.Popen):
+def check_for_errors(command: subprocess.Popen, allow_read=False):
     if command.returncode:
         return command.stderr.read()
+    if allow_read:
+        try:
+            command.wait(timeout=.1)
+        except subprocess.TimeoutExpired:
+            return
+        if command.returncode:
+            return command.stderr.read()
+        else:
+            return
 
     def enqueue_output(out, pq):
         pq.put(out.read())
@@ -76,7 +86,27 @@ def check_for_errors(command: subprocess.Popen):
 
 def dump_frames(video_filename: str, fps: float):
     terminal_lines, terminal_columns = (lambda px: (px.lines, px.columns))(os.get_terminal_size())
-    to_write_name = f'{"".join(video_filename.rsplit(".", 1)[:-1])}.vidtxt'
+    if url:
+        formatted_name = video_filename.split("/")[-1].split("?")[0].strip("/")
+        to_write_name = f'{formatted_name.split(".", 1)[0]}.vidtxt'
+    elif stdin:
+        to_write_name = "stdin.vidtxt"
+    else:
+        to_write_name = f'{video_filename.rsplit(".", 1)[0]}.vidtxt'
+    if os.path.exists(to_write_name):
+        print(f"A file called \x1b[1m{to_write_name}\x1b[0m already exists")
+        overwrite_file = input("Overwrite? [y/n]: ")
+        if not overwrite_file.lower().startswith("y"):
+            file_path = pathlib.Path(to_write_name)
+            highest_number = 0
+            for file in file_path.parent.iterdir():
+                if file.name.startswith(f'{file_path.stem}.') and file.name.endswith(f'{file_path.suffix}'):
+                    raw_number = file.stem.split(".")[-1]
+                    if raw_number.isdecimal():
+                        if int(raw_number) > highest_number:
+                            highest_number = int(raw_number)
+            to_write_name = f'{file_path.stem}.{highest_number + 1}{file_path.suffix}'
+    print(f"Writing to \x1b[1m{to_write_name}\x1b[0m")
     file_to_write = open(to_write_name, "wb")
     #                      0 to 5    6   7     8 to 11       12 to 15    16 to 23          24 to 32
     # layout of header: VIDTXT(str) NUL NUL {columns}(u32) {lines}(u32) {fps}(f64) {frame_start_address}(u64)
@@ -93,7 +123,8 @@ def dump_frames(video_filename: str, fps: float):
                      terminal_lines.to_bytes(4, "big", signed=False) + struct.pack("d", fps)
     #                                          12 to 15                 16 to 23
     #                           24 to 63
-    mem_file = initial_header + b'\x00' * (64 - len(initial_header))
+    # mem_file = initial_header + b'\x00' * (64 - len(initial_header))
+    file_to_write.write(initial_header + b'\x00' * (64 - len(initial_header)))
     raw_video = subprocess.Popen(["ffmpeg", "-nostdin", "-i", video_filename, "-loglevel", "error", "-s",
                                   f"{terminal_columns}x{terminal_lines}", "-c:v", "bmp", "-f", "rawvideo", "-an",
                                   "pipe:1"],
@@ -103,31 +134,50 @@ def dump_frames(video_filename: str, fps: float):
         print("\x1b[1;31mFatal\x1b[0m: Failed to read video:")
         print(raw_video_errors.decode("utf-8"))
         return
-    if no_audio_required:
-        # 24 to 32
-        mem_file = mem_file[:24] + b'\x00' * 8 + mem_file[32:]
-    else:
-        print("Extracting audio from video file...")
+    file_to_write.seek(64, 0)
+    if not no_audio_required:
         ffmpeg_options = ["ffmpeg", "-nostdin"] + (["-reconnect", "1", "-reconnect_streamed", "1",
                                                     "-reconnect_delay_max", "5"] if url else []) + \
-                         ["-i", video_file, "-loglevel", "error", "-f", "mp3", "pipe:1"]
-        audio = subprocess.Popen(ffmpeg_options, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        audio_errors = check_for_errors(audio)
+                         ["-progress", "pipe:2", "-i", video_file, "-loglevel", "error", "-f", "mp3", "pipe:1"]
+        audio = subprocess.Popen(ffmpeg_options, stdout=file_to_write, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
+        audio_errors = check_for_errors(audio, allow_read=True)
         if audio_errors:
             print("\x1b[1;33mWarning\x1b[0m: Extracting audio failed:")
             print(audio_errors.decode("utf-8"))
             print("Continuing without audio...")
-            mem_file = mem_file[:24] + b'\x00' * 8 + mem_file[32:]
         else:
-            audio_bytes = BytesIO(audio.stdout.read()).read()
+            while audio.poll() is None:
+                duration_processed = 0
+                for line in os.read(audio.stderr.fileno(), 200).split(b'\n'):
+                    split_line = line.decode("utf-8").split("=")
+                    if split_line[0] == "out_time_ms" and len(split_line) > 1 and split_line[1].isdecimal():
+                        duration_processed = int(split_line[1]) // 10**6
+                if duration_processed != 0:
+                    progress_text = f"\x1b[7m\rExtracting audio from video file: " \
+                                    f"{str(datetime.timedelta(seconds=duration_processed)).split('.')[0]}/" \
+                                    f"{str(datetime.timedelta(seconds=video_duration)).split('.')[0]}"
+                    percentage = f"[ {round(duration_processed / video_duration * 100)}% ]"
+                    progress_text = \
+                        progress_text + " " * (os.get_terminal_size().columns - (
+                                    (len(progress_text) - 5) + len(percentage))) + percentage
+                    progress_pos = round(duration_processed / video_duration * os.get_terminal_size().columns) + 5
+                    if progress_pos > 1:
+                        progress_text = progress_text[:progress_pos + 1] + "\x1b[0m" + progress_text[progress_pos + 1:]
+                    else:
+                        progress_text = progress_text[:2] + "\x1b[0m" + progress_text[:2]
+                    print(progress_text, end="")
+            # audio_bytes = audio_bytes_container.read()
+            byte_count = os.fstat(file_to_write.fileno()).st_size
             # 24 to 32
-            mem_file = mem_file[:24] + len(audio_bytes).to_bytes(8, "big", signed=False) + mem_file[32:]
+            # mem_file = mem_file[:24] + len(audio_bytes).to_bytes(8, "big", signed=False) + mem_file[32:]
+            file_to_write.seek(24)
+            file_to_write.write(byte_count.to_bytes(8, "big", signed=False))
+            file_to_write.seek(byte_count+64, 0)
             #                      64 to x-1
-            mem_file = mem_file + audio_bytes
+            # mem_file = mem_file + audio_bytes
             # x = frame_start_address
 
-    print(f"Writing to {to_write_name}...")
-    file_to_write.write(mem_file)
+    # file_to_write.write(mem_file)
     avg_interval_list = []
 
     current_frame = 0
@@ -142,7 +192,7 @@ def dump_frames(video_filename: str, fps: float):
             average_interval = sum(avg_interval_list) / len(avg_interval_list)
         average_fps = round(1 / average_interval, 1)
         time_left = average_interval * (total_frames - current_frame)
-        progress_text = f"\x1b[7m\rDumping Frame: {current_frame}/{total_frames} " \
+        progress_text = f"\x1b[7m\rWriting Frame: {current_frame}/{total_frames} " \
                         f" Rate: {average_fps}/s ETA:" \
                         f" {str(datetime.timedelta(seconds=time_left)).split('.')[0]}"
         percentage = f"[ {round(current_frame / total_frames*100)}% ]"
@@ -585,15 +635,20 @@ if __name__ == '__main__':
     else:
         no_audio_required = False
     url = False
+    stdin = False
     if video_file.startswith("http://") or video_file.startswith("https://"):
         url = True
-    if not url and not os.path.exists(video_file):
+    if video_file == "-":
+        print("stdin support not implemented")
+        exit(1)
+        # stdin = True
+    if not (url or stdin) and not os.path.exists(video_file):
         print(f"File \"{video_file}\" not found!")
         exit(1)
-    if not url:
+    if not (url or stdin):
         with open(video_file, "rb") as vidtxt_check:
             first_8 = vidtxt_check.read(8)
-    if (not url) and (video_file.endswith(".vidtxt") or first_8 == b'VIDTXT\x00\x00'):
+    if (not (url or stdin)) and (video_file.endswith(".vidtxt") or first_8 == b'VIDTXT\x00\x00'):
         file_print_frames(video_file)
     else:
         ffprobe = subprocess.Popen(["ffprobe", "-hide_banner", "-show_streams", "-of", "json", video_file],
