@@ -85,7 +85,7 @@ def check_for_errors(command: subprocess.Popen, allow_read=False):
 
 
 def dump_frames(video_filename: str, fps: float):
-    terminal_lines, terminal_columns = (lambda px: (px.lines, px.columns))(os.get_terminal_size())
+    terminal_lines, terminal_columns = (lambda px: (px.lines, px.columns))(shutil.get_terminal_size())
     if url:
         formatted_name = video_filename.split("/")[-1].split("?")[0].strip("/")
         to_write_name = f'{formatted_name.split(".", 1)[0]}.vidtxt'
@@ -158,9 +158,9 @@ def dump_frames(video_filename: str, fps: float):
                                     f"{str(datetime.timedelta(seconds=video_duration)).split('.')[0]}"
                     percentage = f"[ {round(duration_processed / video_duration * 100)}% ]"
                     progress_text = \
-                        progress_text + " " * (os.get_terminal_size().columns - (
+                        progress_text + " " * (shutil.get_terminal_size().columns - (
                                     (len(progress_text) - 5) + len(percentage))) + percentage
-                    progress_pos = round(duration_processed / video_duration * os.get_terminal_size().columns) + 5
+                    progress_pos = round(duration_processed / video_duration * shutil.get_terminal_size().columns) + 5
                     if progress_pos > 1:
                         progress_text = progress_text[:progress_pos + 1] + "\x1b[0m" + progress_text[progress_pos + 1:]
                     else:
@@ -197,9 +197,9 @@ def dump_frames(video_filename: str, fps: float):
                         f" {str(datetime.timedelta(seconds=time_left)).split('.')[0]}"
         percentage = f"[ {round(current_frame / total_frames*100)}% ]"
         progress_text = \
-            progress_text + " "*(os.get_terminal_size().columns-((len(progress_text)-5)+len(percentage))) + percentage
+            progress_text + " "*(shutil.get_terminal_size().columns-((len(progress_text)-5)+len(percentage))) + percentage
         # print("\r" + repr(progress_text), end="")
-        progress_pos = round(current_frame / total_frames*os.get_terminal_size().columns) + 5
+        progress_pos = round(current_frame / total_frames*shutil.get_terminal_size().columns) + 5
         # print(progress_pos)
         if progress_pos > 1:
             progress_text = progress_text[:progress_pos+1] + "\x1b[0m" + progress_text[progress_pos+1:]
@@ -249,7 +249,7 @@ def render_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
     try:
         current_frame = 0
         avg_interval_list = []
-        terminal_lines, terminal_columns = (lambda px: (px.lines, px.columns))(os.get_terminal_size())
+        terminal_lines, terminal_columns = (lambda px: (px.lines, px.columns))(shutil.get_terminal_size())
         raw_video = subprocess.Popen(["ffmpeg", "-nostdin", "-i", video_filename, "-loglevel", "error", "-s",
                                       f"{terminal_columns}x{terminal_lines}", "-c:v", "bmp", "-f", "rawvideo", "-an",
                                       "pipe:1"],
@@ -356,8 +356,8 @@ def file_print_frames(filename):
         curses.cbreak()
         current_interval = interval
         global lag
-        current_terminal_lines = os.get_terminal_size().lines
-        current_terminal_columns = os.get_terminal_size().columns
+        current_terminal_lines = shutil.get_terminal_size().lines
+        current_terminal_columns = shutil.get_terminal_size().columns
         eof = False
         frame_number = 0
         displayed_since = datetime.datetime.now()
@@ -480,8 +480,8 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
             if child_error.qsize() > 0:
                 os.kill(os.getpid(), signal.SIGINT)
             start_time = datetime.datetime.now()
-            terminal_lines = os.get_terminal_size().lines
-            terminal_columns = os.get_terminal_size().columns
+            terminal_lines = shutil.get_terminal_size().lines
+            terminal_columns = shutil.get_terminal_size().columns
             if frames.qsize() < 1:
                 if not no_audio_required:
                     audio_cmd.kill()
