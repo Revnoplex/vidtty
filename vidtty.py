@@ -19,6 +19,12 @@ from typing import Union
 from PIL import Image
 import os
 
+__author__ = "Revnoplex"
+__copyright__ = f"Copyright (C) {__author__} 2022-2023"
+__license__ = "MIT"
+__version__ = "0.1.1"
+PROGRAM_NAME = "vidtty"
+
 
 class OpenError(BaseException):
     pass
@@ -552,12 +558,13 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
 
 
 if __name__ == '__main__':
-    print("vidtty v1.1.0")
+    print(f"{PROGRAM_NAME} {__version__}")
+    print(__copyright__)
     if sys.platform not in ["linux", "darwin"]:
-        print("\x1b[1;33mWarning\x1b[0m: This version of vidtty has only been tested to on Unix based OSes such as"
-              " Linux or MacOS. \nIf you are running this program in Windows, using cygwin is recommended. "
-              "\nYou may also need to install the curses module manually."
-              "\nThe behaviour of the program could be unpredictable.")
+        print(f"\x1b[1;33mWarning\x1b[0m: This version of {PROGRAM_NAME} has only been tested to on Unix based OSes "
+              f"such as Linux or MacOS. \nIf you are running this program in Windows, this program is not guaranteed "
+              f"to work. \nYou may also need to install the curses module manually. \nThe behaviour of the program "
+              f"could be unpredictable.")
         input("Press enter to continue...")
     try:
         import curses
@@ -570,8 +577,8 @@ if __name__ == '__main__':
     video_file = sys.argv[-1]
     options = sys.argv[1:-1]
     if set(options + [video_file]).intersection({"--help", "-h"}) or len(sys.argv) < 2:
-        print("\x1b[1mHelp Menu\x1b[0m")
-        print("Usage vidtty [OPTIONS] FILE")
+        print("\x1b[1mHelp Mfenu\x1b[0m")
+        print(f"Usage {PROGRAM_NAME} [OPTIONS] FILE")
         print("-h --help\tHelp - displays this menu")
         print("-t --tty\tTTY - Send output to another file or tty instead of the default stdout")
         print("-b --debug-mode\tDebug Mode - Extra information will show at the bottom of the screen when playing")
