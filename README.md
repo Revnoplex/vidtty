@@ -1,7 +1,7 @@
 ![Python](https://img.shields.io/badge/-Python-14354C?style=for-the-badge&logo=python&logoColor=FFD43B)
 ![FFmpeg](https://img.shields.io/badge/-FFmpeg-4d853a?style=for-the-badge&logo=ffmpeg)
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/Revnoplex/vidtty?style=for-the-badge&logo=github)
-# Vidtty
+# VidTTY
 A command line based video player written in python that converts and plays videos using ascii characters
 
 This program is featured in one of my [YouTube videos](https://www.youtube.com/watch?v=OSnveMc77ss).
@@ -9,13 +9,13 @@ This program is featured in one of my [YouTube videos](https://www.youtube.com/w
 ## Compatibility
 This program has only been tested to work on some Linux and macOS environments listed below:
 
-| OS Name                        | Architecture   | Python Versions          |
-|--------------------------------|----------------|--------------------------|
-| Arch Linux                     | amd64 (x86_64) | python 3.10, python 3.11 |
-| Ubuntu 20.04                   | amd64 (x86_64) | python 3.8, python 3.10  |
-| macOS Big Sur                  | amd64 (x86_64) | python 3.10, python3.11  |
-| Debian 11 (on Chrome OS)       | amd64 (x86_64) | python 3.9               |
-| Termux 0.118.0 (on Android 13) | AArch64 (arm64)| python 3.11              |
+| OS Name                        | Architecture    | Python Versions          |
+|--------------------------------|-----------------|--------------------------|
+| Arch Linux                     | amd64 (x86_64)  | python 3.10, python 3.11 |
+| Ubuntu 20.04                   | amd64 (x86_64)  | python 3.8, python 3.10  |
+| macOS Big Sur                  | amd64 (x86_64)  | python 3.10, python3.11  |
+| Debian 11 (on Chrome OS)       | amd64 (x86_64)  | python 3.9               |
+| Termux 0.118.0 (on Android 13) | AArch64 (arm64) | python 3.11              |
 
 
 The program has been tested to work on python 3.8 and later.

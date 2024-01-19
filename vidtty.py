@@ -114,10 +114,10 @@ def dump_frames(video_filename: str, fps: float):
             to_write_name = f'{file_path.stem}.{highest_number + 1}{file_path.suffix}'
     print(f"Writing to \x1b[1m{to_write_name}\x1b[0m")
     file_to_write = open(to_write_name, "wb")
-    #                      0 to 5    6   7     8 to 11       12 to 15    16 to 23          24 to 32
+    #                      0 to 5    6   7     8 to 11       12 to 15    16 to 23          24 to 31
     # layout of header: VIDTXT(str) NUL NUL {columns}(u32) {lines}(u32) {fps}(f64) {frame_start_address}(u64)
     # NUL to byte 0x3F
-    #   29 to 63
+    #   32 to 63
     #                     0 to 63                      64 to x-1        x to EOF
     # full file layout: header to 0x3F (64 bytes), audio from 0x41, frames from value of x
     # x = frame_start_address
@@ -174,7 +174,7 @@ def dump_frames(video_filename: str, fps: float):
                     print(progress_text, end="")
             # audio_bytes = audio_bytes_container.read()
             byte_count = os.fstat(file_to_write.fileno()).st_size
-            # 24 to 32
+            # 24 to 31
             # mem_file = mem_file[:24] + len(audio_bytes).to_bytes(8, "big", signed=False) + mem_file[32:]
             file_to_write.seek(24)
             file_to_write.write(byte_count.to_bytes(8, "big", signed=False))
