@@ -20,7 +20,7 @@ from PIL import Image
 import os
 
 __author__ = "Revnoplex"
-__copyright__ = f"Copyright (C) {__author__} 2022-2023"
+__copyright__ = f"Copyright (C) {__author__} 2022-2024"
 __license__ = "MIT"
 __version__ = "0.1.1"
 PROGRAM_NAME = "vidtty"
