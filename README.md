@@ -43,3 +43,6 @@ Some test files are provided to use. To run the program using e.g., one of the t
 ./vidtty.py ./fake-mr-beast-bad-apple-remix.mp4
 ```
 
+## VIDTXT File Format
+See [vidtxt.md](vidtxt.md) for more information
+
