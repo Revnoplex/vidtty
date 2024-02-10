@@ -202,8 +202,8 @@ def dump_frames(video_filename: str, fps: float):
                         f" Rate: {average_fps}/s ETA:" \
                         f" {str(datetime.timedelta(seconds=time_left)).split('.')[0]}"
         percentage = f"[ {round(current_frame / total_frames*100)}% ]"
-        progress_text = \
-            progress_text + " "*(shutil.get_terminal_size().columns-((len(progress_text)-5)+len(percentage))) + percentage
+        progress_text = (progress_text +
+                         " "*(shutil.get_terminal_size().columns-((len(progress_text)-5)+len(percentage))) + percentage)
         # print("\r" + repr(progress_text), end="")
         progress_pos = round(current_frame / total_frames*shutil.get_terminal_size().columns) + 5
         # print(progress_pos)
@@ -291,7 +291,7 @@ def render_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                                '@', '$']
             frame_width = frame.width
             h_line_idx = 0
-            frame_list: list[list[int, list[list[str, int]]]] = []
+            frame_list: list[list[int | str, ]] = []
             frame_num = 0
             line = ""
             for index, pixel in enumerate(img_data):
