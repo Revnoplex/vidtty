@@ -658,8 +658,19 @@ if __name__ == '__main__':
     if (not (url or stdin)) and (video_file.endswith(".vidtxt") or first_8 == b'VIDTXT\x00\x00'):
         file_print_frames(video_file)
     else:
-        ffprobe = subprocess.Popen(["ffprobe", "-hide_banner", "-show_streams", "-of", "json", video_file],
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        ffprobe = subprocess.Popen(
+            [
+                "ffprobe",
+                "-hide_banner",
+                "-count_packets",
+                "-show_streams",
+                "-of",
+                "json",
+                video_file
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
         ffprobe.wait()
         if ffprobe.returncode:
             print("\x1b[1;31mFatal\x1b[0m: Failed to extract video metadata:")
@@ -667,7 +678,7 @@ if __name__ == '__main__':
             exit(1)
         try:
             file_metadata = json.load(ffprobe.stdout).get('streams')[0]
-            total_frames = int(file_metadata.get("nb_frames"))
+            total_frames = int(file_metadata.get("nb_frames") or file_metadata.get("nb_read_packets"))
             fps_fraction = file_metadata.get("r_frame_rate").split("/")
             frame_rate = float(int(fps_fraction[0])/int(fps_fraction[1]))
         except (ValueError, TypeError, IndexError, json.JSONDecodeError) as err:
