@@ -518,8 +518,8 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                         std_scr.addstr(frame[0], 0, frame[1])
                     h_line_idx += 1
                 if debug_mode:
-                    debug_text = f"[Frame (required,drawn,lag): ({calculated_frames},{frame_number},{frames_behind}), " \
-                                 f"{str(time_elapsed).split('.')[0]}]"
+                    debug_text = (f"[Frame (required,drawn,lag): ({calculated_frames},{frame_number},{frames_behind}), "
+                                  f"{str(time_elapsed).split('.')[0]}]")
                     end_text = f"[{str(datetime.timedelta(seconds=video_duration)).split('.')[0]}, " \
                                f"{total_frames} frames, " \
                                f"{round(calculated_frames/total_frames*100, 1)}%] "
