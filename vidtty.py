@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import pathlib
 import shutil
@@ -22,7 +23,7 @@ import os
 __author__ = "Revnoplex"
 __copyright__ = f"Copyright (C) {__author__} 2022-2024"
 __license__ = "MIT"
-__version__ = "1.1.1"
+__version__ = "1.2.0"
 PROGRAM_NAME = "vidtty"
 
 
@@ -144,7 +145,7 @@ def dump_frames(video_filename: str, fps: float):
     if not no_audio_required:
         ffmpeg_options = ["ffmpeg", "-nostdin"] + (["-reconnect", "1", "-reconnect_streamed", "1",
                                                     "-reconnect_delay_max", "5"] if url else []) + \
-                         ["-progress", "pipe:2", "-i", video_file, "-loglevel", "error", "-f", "mp3", "pipe:1"]
+                         ["-progress", "pipe:2", "-i", video_filename, "-loglevel", "error", "-f", "mp3", "pipe:1"]
         audio = subprocess.Popen(ffmpeg_options, stdout=file_to_write, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
         audio_errors = check_for_errors(audio, allow_read=True)
         if audio_errors:
@@ -391,7 +392,7 @@ def file_print_frames(filename):
                                                         :-(terminal_columns - current_terminal_columns)])
                             else:
                                 std_scr.addstr(line, 0, line_contents.decode("utf-8"))
-                    if debug_mode:
+                    if args.debug_mode:
                         debug_text = f"[Frame: ({calculated_frames},{frame_number},{frames_behind}), " \
                                      f"{str(time_elapsed).split('.')[0]}]"
                         end_text = f"[{str(datetime.timedelta(seconds=vid_duration)).split('.')[0]}, " \
@@ -435,7 +436,7 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
         print("Extracting audio from video file...")
         ffmpeg_options = ["ffmpeg", "-nostdin"] + (["-reconnect", "1", "-reconnect_streamed", "1",
                                                     "-reconnect_delay_max", "5"] if url else []) + \
-                         ["-i", video_file, "-loglevel", "error", "-f", "wav", "pipe:1"]
+                         ["-i", args.filename, "-loglevel", "error", "-f", "wav", "pipe:1"]
         audio = subprocess.Popen(ffmpeg_options, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         audio_errors = check_for_errors(audio)
         if audio_errors:
@@ -517,7 +518,7 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                     if frame[0] < terminal_lines - 1:
                         std_scr.addstr(frame[0], 0, frame[1])
                     h_line_idx += 1
-                if debug_mode:
+                if args.debug_mode:
                     debug_text = (f"[Frame (required,drawn,lag): ({calculated_frames},{frame_number},{frames_behind}), "
                                   f"{str(time_elapsed).split('.')[0]}]")
                     end_text = f"[{str(datetime.timedelta(seconds=video_duration)).split('.')[0]}, " \
@@ -566,6 +567,10 @@ if __name__ == '__main__':
               f"to work. \nYou may also need to install the curses module manually. \nThe behaviour of the program "
               f"could be unpredictable.")
         input("Press enter to continue...")
+    if not shutil.which("ffmpeg"):
+        print(f"\x1b[1;31mFatal\x1b[0m: ffmpeg executable not found. Please make sure ffmpeg is installed and make sure"
+              f" the executable is in your PATH.", file=sys.stderr)
+        exit(1)
     try:
         import curses
         import _curses
@@ -574,63 +579,65 @@ if __name__ == '__main__':
         _curses = None
         print(f"\x1b[1;31mFatal\x1b[0m: curses module not found. Please make sure you have the package installed.")
         exit(1)
-    video_file = sys.argv[-1]
-    options = sys.argv[1:-1]
-    if set(options + [video_file]).intersection({"--help", "-h"}) or len(sys.argv) < 2:
-        print("\x1b[1mHelp Mfenu\x1b[0m")
-        print(f"Usage {PROGRAM_NAME} [OPTIONS] FILE")
-        print("-h --help\tHelp - displays this menu")
-        print("-t --tty\tTTY - Send output to another file or tty instead of the default stdout")
-        print("-b --debug-mode\tDebug Mode - Extra information will show at the bottom of the screen when playing")
-        print("-m --no-audio\tNo Audio - Play or save video without any audio. Avoids loading up any audio modules")
-        print("-d --dump\tDump - Convert the video to a instantly playable vidtxt file")
-        video_file = None
-        exit(1)
-    if len(sys.argv) < 2:
-        print("No video file specified. Please specify one. mp4 files works the best")
-        video_file = None
-        exit(1)
 
-    if set(options).intersection({"--tty", "-t"}) and len(options) > 1:
-        if not options[0].startswith("-"):
-            video_file = sys.argv[-3]
-            options = sys.argv[1:-3] + sys.argv[-2:]
-        if options.index("-t")+1 < len(options):
-            tty = options[options.index("-t")+1]
-        else:
-            tty = "/dev/stdout"
+    parser = argparse.ArgumentParser(
+        prog=PROGRAM_NAME,
+        description='Play videos as ascii text',
+        usage=f"{PROGRAM_NAME} [OPTIONS] FILE"
+    )
+    parser.add_argument(
+        "-b", "--debug-mode", action="store_true",
+        help="Extra information will show at the bottom of the screen when playing"
+    )
+    parser.add_argument(
+        "-m", "--no-audio", action="store_true",
+        help="Play or save video without any audio. Avoids loading up any audio modules"
+    )
+    parser.add_argument(
+        "-d", "--dump", action="store_true",
+        help="Convert the video to a instantly playable vidtxt file"
+    )
+    parser.add_argument("filename", help="The file or url to play")
+    parser.add_argument(
+        "-t", "--tty",
+        help="Send output to another file or tty instead of the default stdout"
+    )
+    args = parser.parse_args()
+
+    if args.tty:
         try:
-            open(tty, "rb").close()
-            open(tty, "wb").close()
+            open(args.tty, "rb").close()
+            open(args.tty, "wb").close()
         except FileNotFoundError:
-            print(f"Output pipe \"{tty}\" not found!")
+            print(f"Output pipe \"{args.tty}\" not found!")
             exit(1)
         except PermissionError:
-            print(f"Need permission to write to \"{tty}\"\nRunning sudo...")
-            os.system(f"sudo chown {os.getuid()} {tty}")
-            os.system(f"chmod 600 {tty}")
+            print(f"Need permission to write to \"{args.tty}\"\nRunning sudo...")
+            chown_failed = os.system(f"sudo chown {os.getuid()} {args.tty}") >> 8
+            if chown_failed:
+                print(
+                    f"\x1b[1;31mFatal\x1b[0m: Changing ownership of output pipe failed with exit code {chown_failed}!"
+                )
+                exit(1)
+            chmod_failed = os.system(f"chmod 600 {args.tty}") >> 8
+            if chmod_failed:
+                print(
+                    f"\x1b[1;31mFatal\x1b[0m: Changing permissions of output pipe failed with exit code {chmod_failed}!"
+                )
+                exit(1)
+
         print("Running on another terminal session...")
-        with open(tty, 'rb') as inf, open(tty, 'wb') as outf:
+        with open(args.tty, 'rb') as inf, open(args.tty, 'wb') as outf:
             os.dup2(inf.fileno(), 0)
             os.dup2(outf.fileno(), 1)
             os.dup2(outf.fileno(), 2)
         os.environ['TERM'] = 'linux'
-    if options:
-        debug_mode = bool(set(options).intersection({"--debug", "-b"}))
-    else:
-        debug_mode = False
-    if not shutil.which("ffmpeg"):
-        print(f"\x1b[1;31mFatal\x1b[0m: ffmpeg executable not found. Please make sure ffmpeg is installed and make sure"
-              f" the executable is in your PATH.", file=sys.stderr)
-        print(f"To use without audio and bypass these errors, pass the -m or --no-audio argument")
-        exit(1)
-    if set(options).intersection({"--no-audio", "-m"}):
+    if args.no_audio:
         no_audio_required = True
         if len(sys.argv) > 2:
             pass
         else:
             print("No video file specified. Please specify one. mp4 files works the best")
-            video_file = None
             exit(1)
     elif not (shutil.which("aplay") or shutil.which("play")):
         print(f"\x1b[1;31mFatal\x1b[0m: aplay or play executable not found. "
@@ -643,20 +650,20 @@ if __name__ == '__main__':
         no_audio_required = False
     url = False
     stdin = False
-    if video_file.startswith("http://") or video_file.startswith("https://"):
+    if args.filename.startswith("http://") or args.filename.startswith("https://"):
         url = True
-    if video_file == "-":
+    if args.filename == "-":
         print("stdin support not implemented")
         exit(1)
         # stdin = True
-    if not (url or stdin) and not os.path.exists(video_file):
-        print(f"File \"{video_file}\" not found!")
+    if not (url or stdin) and not os.path.exists(args.filename):
+        print(f"File \"{args.filename}\" not found!")
         exit(1)
     if not (url or stdin):
-        with open(video_file, "rb") as vidtxt_check:
+        with open(args.filename, "rb") as vidtxt_check:
             first_8 = vidtxt_check.read(8)
-    if (not (url or stdin)) and (video_file.endswith(".vidtxt") or first_8 == b'VIDTXT\x00\x00'):
-        file_print_frames(video_file)
+    if (not (url or stdin)) and (args.filename.endswith(".vidtxt") or first_8 == b'VIDTXT\x00\x00'):
+        file_print_frames(args.filename)
     else:
         ffprobe = subprocess.Popen(
             [
@@ -666,7 +673,7 @@ if __name__ == '__main__':
                 "-show_streams",
                 "-of",
                 "json",
-                video_file
+                args.filename
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
@@ -685,14 +692,14 @@ if __name__ == '__main__':
             err: BaseException
             print("\x1b[1;31mFatal\x1b[0m: Failed to extract video metadata:\nUnexpected or missing metadata. "
                   "Is this file a video?")
-            if debug_mode:
+            if args.debug_mode:
                 print(str(err))
             exit(1)
         frame_rate = 30.0 if not frame_rate else frame_rate
         video_duration = (total_frames // frame_rate) + (total_frames % frame_rate) / frame_rate
         global_interval = (1 / frame_rate)
-        if set(options).intersection({"--dump", "-d"}):
-            dump_frames(video_file, frame_rate)
+        if args.dump:
+            dump_frames(args.filename, frame_rate)
         else:
             manager = Manager()
             queue = manager.Queue()
@@ -700,7 +707,7 @@ if __name__ == '__main__':
             shared_dumping_interval = Value(ctypes.c_float, 1)
             shared_child_error = manager.Queue()
             p1 = Process(target=render_frames, args=(queue, shared_dumped_frames, shared_dumping_interval,
-                                                     shared_child_error, video_file, total_frames,),
+                                                     shared_child_error, args.filename, total_frames,),
                          name="Frame Renderer")
             try:
                 p2 = Process(target=print_frames, args=(queue, shared_dumped_frames, shared_dumping_interval,
