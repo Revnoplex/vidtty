@@ -92,7 +92,7 @@ def check_for_errors(command: subprocess.Popen, allow_read=False):
 
 
 def dump_frames(video_filename: str, fps: float):
-    terminal_lines, terminal_columns = (lambda px: (px.lines, px.columns))(shutil.get_terminal_size())
+    terminal_columns, terminal_lines = video_size
     if url:
         formatted_name = video_filename.split("/")[-1].split("?")[0].strip("/")
         to_write_name = f'{formatted_name.split(".", 1)[0]}.vidtxt'
@@ -256,7 +256,7 @@ def render_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
     try:
         current_frame = 0
         avg_interval_list = []
-        terminal_lines, terminal_columns = (lambda px: (px.lines, px.columns))(shutil.get_terminal_size())
+        terminal_columns, terminal_lines = video_size
         raw_video = subprocess.Popen(["ffmpeg", "-nostdin", "-i", video_filename, "-loglevel", "error", "-s",
                                       f"{terminal_columns}x{terminal_lines}", "-c:v", "bmp", "-f", "rawvideo", "-an",
                                       "pipe:1"],
@@ -602,8 +602,15 @@ if __name__ == '__main__':
         "-t", "--tty",
         help="Send output to another file or tty instead of the default stdout"
     )
+    parser.add_argument("-s", "--video-size", "--size",
+                        help="The output size of the video to convert")
+    parser.add_argument(
+        "--columns", '--width', help="The width or columns the converted video should be", type=int
+    )
+    parser.add_argument(
+        "--lines", "--height", help="The height or lines the converted video should be", type=int
+    )
     args = parser.parse_args()
-
     if args.tty:
         try:
             open(args.tty, "rb").close()
@@ -698,6 +705,18 @@ if __name__ == '__main__':
         frame_rate = 30.0 if not frame_rate else frame_rate
         video_duration = (total_frames // frame_rate) + (total_frames % frame_rate) / frame_rate
         global_interval = (1 / frame_rate)
+        video_size: list[int] = (
+            (lambda px: [args.columns or px.columns, args.lines or px.lines])(shutil.get_terminal_size())
+        )
+        if args.video_size:
+            arg_video_size_parts = args.video_size.split('x')
+            if len(arg_video_size_parts) != 2 or ():
+                print("\x1b[1;31mFatal\x1b[0m: Bad video-size argument. must be 'columns x lines'")
+                exit(1)
+            if not all([part.isdecimal() for part in arg_video_size_parts]):
+                print("\x1b[1;31mFatal\x1b[0m: Bad video-size argument. must be decimal numbers")
+                exit(1)
+            video_size = [int(part.strip()) for part in arg_video_size_parts]
         if args.dump:
             dump_frames(args.filename, frame_rate)
         else:
