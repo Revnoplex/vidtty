@@ -16,7 +16,6 @@ import ctypes
 import datetime
 import threading
 from types import TracebackType
-from typing import Union
 from PIL import Image
 import os
 
@@ -31,32 +30,20 @@ class OpenError(BaseException):
     pass
 
 
-if sys.version_info[1] < 10:
-    def exception_handler(exception_type: BaseException, exception: BaseException,
-                          exception_traceback: Union[TracebackType, list]):
-        if exception_type in [KeyboardInterrupt, EOFError, SystemExit]:
-            return
-        else:
-            print("Traceback (most recent call last):")
-            if isinstance(exception_traceback, TracebackType):
-                traceback.print_tb(exception_traceback)
-            else:
-                traceback.print_list(exception_traceback)
-            print(f'{exception_type.__name__}: {exception}', file=sys.stderr)
-            exit(1)
-else:
-    def exception_handler(exception_type: type[BaseException], exception: BaseException,
-                          exception_traceback: Union[TracebackType, list[traceback.FrameSummary]]):
-        if exception_type in [KeyboardInterrupt, EOFError, SystemExit]:
-            return
-        else:
-            print("Traceback (most recent call last):")
-            if isinstance(exception_traceback, TracebackType):
-                traceback.print_tb(exception_traceback)
-            else:
-                traceback.print_list(exception_traceback)
-            print(f'{exception_type.__name__}: {exception}', file=sys.stderr)
-            exit(1)
+def exception_handler(
+        exception_type: BaseException | type[BaseException], exception: BaseException,
+        exception_traceback: TracebackType | list | list[traceback.FrameSummary]
+):
+    exception_types = (KeyboardInterrupt, EOFError, SystemExit)
+    if exception_type in exception_types or isinstance(exception_type, exception_types):
+        return
+    print("Traceback (most recent call last):", file=sys.stderr)
+    if isinstance(exception_traceback, TracebackType):
+        traceback.print_tb(exception_traceback)
+    else:
+        traceback.print_list(exception_traceback)
+    print(f'{exception_type.__name__}: {exception}', file=sys.stderr)
+    exit(1)
 
 
 sys.excepthook = exception_handler
@@ -322,6 +309,7 @@ lag = 0
 
 def file_print_frames(filename):
     global no_audio_required
+    running_child_processes = []
     with open(filename, "rb") as vidtxt_file:
         vidtxt_header = vidtxt_file.read(64)
         terminal_columns = int.from_bytes(vidtxt_header[8:12], "big", signed=False)
@@ -340,10 +328,12 @@ def file_print_frames(filename):
                 ["aplay", "--quiet"] if shutil.which("aplay") else ["play", "-q", "-V1", "-t",
                                                                     "wav", "-"],
                 stdin=subprocess.PIPE)
+            running_child_processes.append(blank_sound)
             blank_sound.communicate(input=b'RIFF%\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00D\xac\x00\x00\x88X'
                                           b'\x01\x00\x02\x00\x10\x00datat\x00\x00\x00\x00')
             audio = subprocess.Popen(["ffmpeg", "-nostdin", "-i", "-", "-loglevel", "error", "-f", "wav", "pipe:1"],
                                      stdin=vidtxt_file, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            running_child_processes.append(audio)
             audio_errors = check_for_errors(audio)
             if audio_errors:
                 print("\x1b[1;31mFatal\x1b[0m: Failed to read audio:")
@@ -351,6 +341,7 @@ def file_print_frames(filename):
             audio_cmd = subprocess.Popen(["aplay", "--quiet"] if shutil.which("aplay") else ["play", "-q", "-V1", "-t",
                                                                                              "wav", "-"],
                                          stdin=audio.stdout, stderr=subprocess.PIPE)
+            running_child_processes.append(audio_cmd)
             audio_cmd_errors = check_for_errors(audio_cmd)
             if audio_cmd_errors:
                 print("\x1b[1;31mFatal\x1b[0m: Failed to play audio:")
@@ -424,6 +415,8 @@ def file_print_frames(filename):
                 if current_interval < interval:
                     current_interval = interval
         finally:
+            for child in running_child_processes:
+                child.terminate()
             curses.echo()
             curses.nocbreak()
             curses.endwin()
@@ -432,12 +425,14 @@ def file_print_frames(filename):
 def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                  child_error: Queue):
     global no_audio_required
+    running_child_processes = []
     if not no_audio_required:
         print("Extracting audio from video file...")
         ffmpeg_options = ["ffmpeg", "-nostdin"] + (["-reconnect", "1", "-reconnect_streamed", "1",
                                                     "-reconnect_delay_max", "5"] if url else []) + \
                          ["-i", args.filename, "-loglevel", "error", "-f", "wav", "pipe:1"]
         audio = subprocess.Popen(ffmpeg_options, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        running_child_processes.append(audio)
         audio_errors = check_for_errors(audio)
         if audio_errors:
             print("\x1b[1;33mWarning\x1b[0m: Extracting audio failed:")
@@ -468,11 +463,13 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
         blank_sound = subprocess.Popen(["aplay", "--quiet"] if shutil.which("aplay") else ["play", "-q", "-V1", "-t",
                                                                                            "wav", "-"],
                                        stdin=subprocess.PIPE)
+        running_child_processes.append(blank_sound)
         blank_sound.communicate(input=b'RIFF%\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00D\xac\x00\x00\x88X'
                                       b'\x01\x00\x02\x00\x10\x00datat\x00\x00\x00\x00')
         audio_cmd = subprocess.Popen(["aplay", "--quiet"] if shutil.which("aplay") else ["play", "-q", "-V1", "-t",
                                                                                          "wav", "-"],
                                      stdin=audio.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        running_child_processes.append(audio_cmd)
         audio_cmd_errors = check_for_errors(audio_cmd)
         if audio_cmd_errors:
             print("\x1b[1;31mFatal\x1b[0m: Failed to read audio:")
@@ -549,6 +546,8 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                 current_interval = interval
         std_scr.addstr(0, 0, "Press Ctrl-C to exit")
     finally:
+        for child in running_child_processes:
+            child.terminate()
         curses.echo()
         curses.nocbreak()
         curses.endwin()
@@ -725,12 +724,15 @@ if __name__ == '__main__':
             shared_dumped_frames = Value(ctypes.c_int, 0)
             shared_dumping_interval = Value(ctypes.c_float, 1)
             shared_child_error = manager.Queue()
+            running_global_child_subprocesses = []
             p1 = Process(target=render_frames, args=(queue, shared_dumped_frames, shared_dumping_interval,
                                                      shared_child_error, args.filename, total_frames,),
                          name="Frame Renderer")
+            running_global_child_subprocesses.append(p1)
             try:
                 p2 = Process(target=print_frames, args=(queue, shared_dumped_frames, shared_dumping_interval,
                                                         shared_child_error,))
+                running_global_child_subprocesses.append(p2)
                 p1.exception = exception_handler
                 p1.start()
                 child_error_state = print_frames(queue, shared_dumped_frames, shared_dumping_interval,
@@ -738,4 +740,7 @@ if __name__ == '__main__':
                 if child_error_state:
                     exception_handler(*child_error_state)
             finally:
+                for global_child in running_global_child_subprocesses:
+                    if global_child.is_alive():
+                        global_child.terminate()
                 p1.terminate()
