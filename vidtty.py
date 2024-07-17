@@ -96,9 +96,8 @@ def dump_frames(video_filename: str, fps: float):
             for file in file_path.parent.iterdir():
                 if file.name.startswith(f'{file_path.stem}.') and file.name.endswith(f'{file_path.suffix}'):
                     raw_number = file.stem.split(".")[-1]
-                    if raw_number.isdecimal():
-                        if int(raw_number) > highest_number:
-                            highest_number = int(raw_number)
+                    if raw_number.isdecimal and int(raw_number) > highest_number:
+                        highest_number = int(raw_number)
             to_write_name = f'{file_path.stem}.{highest_number + 1}{file_path.suffix}'
     print(f"Writing to \x1b[1m{to_write_name}\x1b[0m")
     file_to_write = open(to_write_name, "wb")
@@ -114,7 +113,7 @@ def dump_frames(video_filename: str, fps: float):
         return
     # byte numbers:      0   1   2   3   4   5   6   7                            8 to 11
     initial_header = b'\x56\x49\x44\x54\x58\x54\x00\x00' + terminal_columns.to_bytes(4, "big", signed=False) + \
-                     terminal_lines.to_bytes(4, "big", signed=False) + struct.pack("d", fps)
+                     terminal_lines.to_bytes(4, "big", signed=False) + struct.pack(">d", fps)
     #                                          12 to 15                 16 to 23
     #                           24 to 63
     # mem_file = initial_header + b'\x00' * (64 - len(initial_header))
@@ -314,7 +313,7 @@ def file_print_frames(filename):
         vidtxt_header = vidtxt_file.read(64)
         terminal_columns = int.from_bytes(vidtxt_header[8:12], "big", signed=False)
         terminal_lines = int.from_bytes(vidtxt_header[12:16], "big", signed=False)
-        fps: float = struct.unpack("d", vidtxt_header[16:24])[0]
+        fps: float = struct.unpack(">d", vidtxt_header[16:24])[0]
         audio_size = int.from_bytes(vidtxt_header[24:32], "big", signed=False)
         frames_start_from = 64 + audio_size
         vidtxt_file.seek(64, 0)
