@@ -418,9 +418,23 @@ def file_print_frames(filename):
                             f"[Frame (required,drawn,lag): ({calculated_frames},{frame_number},{frames_behind}), "
                             f"{str(time_elapsed).split('.')[0]}]"
                         )
-                        end_text = f"[{str(datetime.timedelta(seconds=vid_duration)).split('.')[0]}, " \
-                                   f"{f_total_frames} frames, " \
-                                   f"{round(calculated_frames / f_total_frames * 100, 1)}%] "
+                        try:
+                            end_text = f"[{str(datetime.timedelta(seconds=vid_duration)).split('.')[0]}, " \
+                                       f"{f_total_frames} frames, " \
+                                       f"{round(calculated_frames / f_total_frames * 100, 1)}%] "
+                        except OverflowError:
+                            curses.echo()
+                            curses.nocbreak()
+                            curses.endwin()
+                            print(
+                                "\x1b[1;31mFATAL\x1b[0m: The fps value in this file is in the wrong byte order and will"
+                                f" not work with this version of {PROGRAM_NAME}. Please create a new vidtxt file with "
+                                f"the dimensions as specified by running {PROGRAM_NAME} -i or the dimensions in the "
+                                f"example below. \n"
+                                f"Example: {PROGRAM_NAME} -ds {terminal_columns}x{terminal_lines} ORIGINAL_FILENAME"
+                            )
+                            return
+
                         if len(debug_text) < current_terminal_columns - 1:
                             debug_text = debug_text + " " * (
                                           current_terminal_columns - (len(debug_text) + len(end_text))) + end_text
@@ -436,22 +450,35 @@ def file_print_frames(filename):
                     continue
                 frame_number += 1
                 duration = (datetime.datetime.now() - start_time).total_seconds()
-                if duration < current_interval:
-                    if frames_behind < 1:
-                        time.sleep(current_interval - duration)
-                    if frames_behind < 0:
-                        time.sleep(current_interval - duration)
-                else:
-                    lag += 1
-                    current_interval = (duration - current_interval) / lag
+                try:
+                    if duration < current_interval:
+                        if frames_behind < 1:
+                            time.sleep(current_interval - duration)
+                        if frames_behind < 0:
+                            time.sleep(current_interval - duration)
+                    else:
+                        lag += 1
+                        current_interval = (duration - current_interval) / lag
+                except OverflowError:
+                    curses.echo()
+                    curses.nocbreak()
+                    curses.endwin()
+                    print(
+                        "\x1b[1;31mFATAL\x1b[0m: The fps value in this file is in the wrong byte order and will not "
+                        f"work with this version of {PROGRAM_NAME}. Please create a new vidtxt file with the dimensions"
+                        f" as specified by running {PROGRAM_NAME} -i or the dimensions in the example below. \n"
+                        f"Example: {PROGRAM_NAME} -ds {terminal_columns}x{terminal_lines} ORIGINAL_FILENAME"
+                    )
+                    return
                 if current_interval < interval:
                     current_interval = interval
         finally:
             for child in running_child_processes:
                 child.terminate()
-            curses.echo()
-            curses.nocbreak()
-            curses.endwin()
+            if not curses.isendwin():
+                curses.echo()
+                curses.nocbreak()
+                curses.endwin()
 
 
 def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
