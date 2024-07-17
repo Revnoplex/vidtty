@@ -111,8 +111,8 @@ def dump_frames(video_filename: str, fps: float, frame_size: list[int]):
     if fps == float("inf"):
         print("\x1b[1;31mFatal\x1b[0m: Cannot dump frames as the fps value cannot be stored as a 64 bit double")
         return
-    # byte numbers:      0   1   2   3   4   5   6   7                            8 to 11
-    initial_header = b'\x56\x49\x44\x54\x58\x54\x00\x00' + terminal_columns.to_bytes(4, "big", signed=False) + \
+    # byte numbers:    0 to 5  6   7                            8 to 11
+    initial_header = b'VIDTXT\x00\x00' + terminal_columns.to_bytes(4, "big", signed=False) + \
                      terminal_lines.to_bytes(4, "big", signed=False) + struct.pack(">d", fps)
     #                                          12 to 15                 16 to 23
     #                           24 to 63
