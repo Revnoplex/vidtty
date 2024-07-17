@@ -101,13 +101,12 @@ def dump_frames(video_filename: str, fps: float, frame_size: list[int]):
             to_write_name = f'{file_path.stem}.{highest_number + 1}{file_path.suffix}'
     print(f"Writing to \x1b[1m{to_write_name}\x1b[0m")
     file_to_write = open(to_write_name, "wb")
-    #                      0 to 5    6   7     8 to 11       12 to 15    16 to 23          24 to 31
-    # layout of header: VIDTXT(str) NUL NUL {columns}(u32) {lines}(u32) {fps}(f64) {frame_start_address}(u64)
+    #                      0 to 5    6   7     8 to 11       12 to 15    16 to 23    24 to 31
+    # layout of header: VIDTXT(str) NUL NUL {columns}(u32) {lines}(u32) {fps}(f64) {audio_size}(u64)
     # NUL to byte 0x3F
     #   32 to 63
-    #                     0 to 63                      64 to x-1        x to EOF
-    # full file layout: header to 0x3F (64 bytes), audio from 0x41, frames from value of x
-    # x = frame_start_address
+    #                     0 to 63                 64 to audio_size+63        64+audio_size to EOF
+    # full file layout: header to 0x3F (64 bytes), audio from 0x40, frames from value of 0x40+audio_size
     if fps == float("inf"):
         print("\x1b[1;31mFatal\x1b[0m: Cannot dump frames as the fps value cannot be stored as a 64 bit double")
         return
@@ -160,15 +159,14 @@ def dump_frames(video_filename: str, fps: float, frame_size: list[int]):
                         progress_text = progress_text[:2] + "\x1b[0m" + progress_text[:2]
                     print(progress_text, end="")
             # audio_bytes = audio_bytes_container.read()
-            byte_count = os.fstat(file_to_write.fileno()).st_size
+            audio_byte_count = os.fstat(file_to_write.fileno()).st_size - 64
             # 24 to 31
             # mem_file = mem_file[:24] + len(audio_bytes).to_bytes(8, "big", signed=False) + mem_file[32:]
             file_to_write.seek(24)
-            file_to_write.write(byte_count.to_bytes(8, "big", signed=False))
-            file_to_write.seek(byte_count+64, 0)
-            #                      64 to x-1
+            file_to_write.write(audio_byte_count.to_bytes(8, "big", signed=False))
+            file_to_write.seek(64+audio_byte_count, 0)
+            #                      64 to audio_size+63
             # mem_file = mem_file + audio_bytes
-            # x = frame_start_address
 
     # file_to_write.write(mem_file)
     avg_interval_list = []
