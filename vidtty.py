@@ -96,7 +96,7 @@ def dump_frames(video_filename: str, fps: float, frame_size: list[int]):
             for file in file_path.parent.iterdir():
                 if file.name.startswith(f'{file_path.stem}.') and file.name.endswith(f'{file_path.suffix}'):
                     raw_number = file.stem.split(".")[-1]
-                    if raw_number.isdecimal and int(raw_number) > highest_number:
+                    if raw_number.isdecimal() and int(raw_number) > highest_number:
                         highest_number = int(raw_number)
             to_write_name = f'{file_path.stem}.{highest_number + 1}{file_path.suffix}'
     print(f"Writing to \x1b[1m{to_write_name}\x1b[0m")
