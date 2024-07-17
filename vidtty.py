@@ -383,8 +383,10 @@ def file_print_frames(filename):
                             else:
                                 std_scr.addstr(line, 0, line_contents.decode("utf-8"))
                     if args.debug_mode:
-                        debug_text = f"[Frame: ({calculated_frames},{frame_number},{frames_behind}), " \
-                                     f"{str(time_elapsed).split('.')[0]}]"
+                        debug_text = (
+                            f"[Frame (required,drawn,lag): ({calculated_frames},{frame_number},{frames_behind}), "
+                            f"{str(time_elapsed).split('.')[0]}]"
+                        )
                         end_text = f"[{str(datetime.timedelta(seconds=vid_duration)).split('.')[0]}, " \
                                    f"{f_total_frames} frames, " \
                                    f"{round(calculated_frames / f_total_frames * 100, 1)}%] "
