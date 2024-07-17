@@ -78,8 +78,8 @@ def check_for_errors(command: subprocess.Popen, allow_read=False):
         return line
 
 
-def dump_frames(video_filename: str, fps: float):
-    terminal_columns, terminal_lines = video_size
+def dump_frames(video_filename: str, fps: float, frame_size: list[int]):
+    terminal_columns, terminal_lines = frame_size
     if url:
         formatted_name = video_filename.split("/")[-1].split("?")[0].strip("/")
         to_write_name = f'{formatted_name.split(".", 1)[0]}.vidtxt'
@@ -238,11 +238,11 @@ def dump_frames(video_filename: str, fps: float):
 
 
 def render_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
-                  error: Queue, video_filename: str, total_frame_count: int):
+                  error: Queue, video_filename: str, total_frame_count: int, frame_size: list[int]):
     try:
         current_frame = 0
         avg_interval_list = []
-        terminal_columns, terminal_lines = video_size
+        terminal_columns, terminal_lines = frame_size
         raw_video = subprocess.Popen(["ffmpeg", "-nostdin", "-i", video_filename, "-loglevel", "error", "-s",
                                       f"{terminal_columns}x{terminal_lines}", "-c:v", "bmp", "-f", "rawvideo", "-an",
                                       "pipe:1"],
@@ -716,7 +716,7 @@ if __name__ == '__main__':
                 exit(1)
             video_size = [int(part.strip()) for part in arg_video_size_parts]
         if args.dump:
-            dump_frames(args.filename, frame_rate)
+            dump_frames(args.filename, frame_rate, video_size)
         else:
             manager = Manager()
             queue = manager.Queue()
@@ -725,7 +725,7 @@ if __name__ == '__main__':
             shared_child_error = manager.Queue()
             running_global_child_subprocesses = []
             p1 = Process(target=render_frames, args=(queue, shared_dumped_frames, shared_dumping_interval,
-                                                     shared_child_error, args.filename, total_frames,),
+                                                     shared_child_error, args.filename, total_frames, video_size),
                          name="Frame Renderer")
             running_global_child_subprocesses.append(p1)
             try:
