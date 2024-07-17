@@ -301,6 +301,39 @@ def render_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
         error.put((type(e), e, traceback.extract_tb(e.__traceback__)))
 
 
+def vidtxt_info(filename):
+    with open(filename, "rb") as vidtxt_file:
+        vidtxt_header = vidtxt_file.read(64)
+    terminal_columns = int.from_bytes(vidtxt_header[8:12], "big", signed=False)
+    terminal_lines = int.from_bytes(vidtxt_header[12:16], "big", signed=False)
+    fps: float = struct.unpack(">d", vidtxt_header[16:24])[0]
+    audio_size = int.from_bytes(vidtxt_header[24:32], "big", signed=False)
+    frames_start_from = 64 + audio_size
+    f_total_frames = \
+        (os.stat(filename).st_size - frames_start_from) // ((terminal_columns - 1) * (terminal_lines - 1))
+    vid_duration = (f_total_frames // fps) + (f_total_frames % fps) / fps
+    try:
+        duration_str = str(datetime.timedelta(seconds=vid_duration))
+        fps_str = f"{fps} fps"
+    except OverflowError:
+        duration_str = "\x1b[1;31mWrong Endian\x1b[0m"
+        fps_str = duration_str
+        print(
+            "\x1b[1;33mWarning\x1b[0m: The fps value in this file is in the wrong byte order and will not work with "
+            f"this version of {PROGRAM_NAME}. Please create a new vidtxt file with the dimensions as specified below. "
+            f"\n"
+            f"Example: {PROGRAM_NAME} -ds {terminal_columns}x{terminal_lines} ORIGINAL_FILENAME"
+        )
+    print(
+        f"\n\x1b[1mVIDTXT Video Information for {filename}:\x1b[0m\n"
+        f"Dimensions (columns x lines): {terminal_columns}x{terminal_lines} characters\n"
+        f"Framerate: {fps_str} \n"
+        f"Total Frames: {f_total_frames} \n"
+        f"Duration: {duration_str} \n"
+        f"Audio Size: {audio_size} bytes"
+    )
+
+
 lag = 0
 
 
@@ -608,6 +641,10 @@ if __name__ == '__main__':
     parser.add_argument(
         "--lines", "--height", help="The height or lines the converted video should be", type=int
     )
+    parser.add_argument(
+        "-i", "--info", action="store_true",
+        help="Get information about a vidtxt file"
+    )
     args = parser.parse_args()
     if args.tty:
         try:
@@ -668,7 +705,10 @@ if __name__ == '__main__':
         with open(args.filename, "rb") as vidtxt_check:
             first_8 = vidtxt_check.read(8)
     if (not (url or stdin)) and (args.filename.endswith(".vidtxt") or first_8 == b'VIDTXT\x00\x00'):
-        file_print_frames(args.filename)
+        if args.info:
+            vidtxt_info(args.filename)
+        else:
+            file_print_frames(args.filename)
     else:
         ffprobe = subprocess.Popen(
             [
