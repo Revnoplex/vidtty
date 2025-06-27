@@ -577,6 +577,10 @@ def print_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                 if args.debug_mode:
                     debug_text = (f"[Frame (required,drawn,lag): ({calculated_frames},{frame_number},{frames_behind}), "
                                   f"{str(time_elapsed).split('.')[0]}]")
+                    ahead_speed = round((1 / dumping_interval.value-frame_rate), 1)
+                    time_left = dumping_interval.value * (total_frames-dumped_frames.value)
+                    if total_frames-dumped_frames.value > 1:
+                        debug_text = f"[Render (rendered,ahead,speed): ({dumped_frames.value},{dumped_frames.value-calculated_frames},{ahead_speed})] "+debug_text
                     end_text = f"[{str(datetime.timedelta(seconds=video_duration)).split('.')[0]}, " \
                                f"{total_frames} frames, " \
                                f"{round(calculated_frames/total_frames*100, 1)}%] "
