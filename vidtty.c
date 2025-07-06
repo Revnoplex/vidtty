@@ -1,4 +1,3 @@
-#include <SDL3/SDL_iostream.h>
 #include <libavutil/avutil.h>
 #include <libavutil/mem.h>
 #include <stdio.h>
@@ -13,8 +12,20 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
-#include <SDL3/SDL_audio.h>
-#include <SDL3/SDL_init.h>
+# if __has_include(<SDL3/SDL.h>)
+#   include <SDL3/SDL_audio.h>
+#   include <SDL3/SDL_version.h>
+#   include <SDL3/SDL_iostream.h>
+#   include <SDL3/SDL_init.h>
+# elif __has_include(<SDL2/SDL.h>)
+#   include <SDL2/SDL_audio.h>
+#   include <SDL2/SDL_version.h>
+#   include <SDL2/SDL_rwops.h>
+#   include <SDL2/SDL.h>
+# else
+#   error "Requires SDL2 or later"
+# endif
+
 #include <signal.h>
 #include <libavformat/avio.h>
 #include <libavutil/error.h>
@@ -203,7 +214,11 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
     uint8_t *wav_data = NULL;
     uint32_t wav_data_len = 0;
     uint8_t *wav_buffer = NULL;
+# if SDL_VERSION_ATLEAST(3, 0, 0)
     SDL_AudioStream *stream = NULL;
+# else
+    SDL_AudioDeviceID *stream = NULL;
+# endif
     AVIOContext *avio_ctx = NULL;
     AVPacket *pkt = NULL;
     AVFrame *decoded = NULL;
@@ -405,9 +420,11 @@ ffmpeg_cleanup:
         if (status < 0) {
             goto main_cleanup;
         }
+        
 
         SDL_AudioSpec spec;
         
+# if SDL_VERSION_ATLEAST(3, 0, 0)
         if (!SDL_SetAppMetadata(PROGRAM_NAME, VERSION, PROGRAM_NAME)) {
             status = -1;
             fprintf(stderr, "Error setting mixer metadata: %s\n", SDL_GetError());
@@ -419,14 +436,19 @@ ffmpeg_cleanup:
             goto main_cleanup;
         }
 
+# endif
+
         // SDL takes over signal handling for SIGINT and SIGTERM. We dont't want that so we change it back.
 
         // save current handlers
         struct sigaction int_action, term_action;
         sigaction(SIGINT, NULL, &int_action);
         sigaction(SIGTERM, NULL, &term_action);
-
+# if SDL_VERSION_ATLEAST(3, 0, 0)
         if (!SDL_Init(SDL_INIT_AUDIO)) {
+# else 
+        if (SDL_Init(SDL_INIT_AUDIO) < 0 ) {
+# endif
             status = -1;
             fprintf(stderr, "SDL_Init Error: %s\n", SDL_GetError());
             goto main_cleanup;
@@ -436,21 +458,72 @@ ffmpeg_cleanup:
         sigaction(SIGINT, &int_action, NULL);
         sigaction(SIGTERM, &term_action, NULL);
 
+# if SDL_VERSION_ATLEAST(3, 0, 0)
         SDL_IOStream *wav_stream = SDL_IOFromMem(wav_buffer, wav_size);
-        if (!SDL_LoadWAV_IO(wav_stream, 1, &spec, &wav_data, &wav_data_len)) {
+        int32_t load_result = SDL_LoadWAV_IO(wav_stream, 1, &spec, &wav_data, &wav_data_len);
+# else
+        SDL_RWops *wav_stream = SDL_RWFromMem(wav_buffer, wav_size);
+        SDL_AudioSpec *spec_result;
+        spec_result = SDL_LoadWAV_RW(wav_stream, 1, &spec, &wav_data, &wav_data_len);
+        int32_t load_result = (spec_result != NULL);
+        spec = *spec_result;
+# endif
+        if (!load_result) {
             status = -1;
             fprintf(stderr, "Couldn't load .wav file: %s\n", SDL_GetError());
             goto main_cleanup;
         }
+// SDL_AudioDeviceID deviceId = SDL_OpenAudioDevice(NULL, 0, &wavSpec, NULL, 0);
+//             if(!deviceId)
+//             {
+//                 printf("Audio device could not be opened!\n"
+//                        "SDL_Error: %s\n", SDL_GetError());
+//                 SDL_FreeWAV(wavBuffer);
+//                 return 0;
+//             }
 
+//             // Queue audio (~ Add to playlist)
+//             if(SDL_QueueAudio(deviceId, wavBuffer, wavLength) < 0)
+//             {
+//                 printf("Audio could not be queued!\n"
+//                        "SDL_Error: %s\n", SDL_GetError());
+//                 SDL_CloseAudioDevice(deviceId);
+//                 SDL_FreeWAV(wavBuffer);
+//                 return 0;
+//             }
+
+//             // Play audio
+//             SDL_PauseAudioDevice(deviceId, 0);
+# if SDL_VERSION_ATLEAST(3, 0, 0)
         stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
+# else
+        stream = malloc(sizeof(SDL_AudioDeviceID));
+        SDL_AudioDeviceID device_id = SDL_OpenAudioDevice(NULL, 0, &spec, NULL, 0);
+        if (device_id) {
+            *stream = device_id;
+        }
+# endif
         if (!stream) {
             status = -1;
             fprintf(stderr, "Couldn't create audio stream: %s\n", SDL_GetError());
             goto main_cleanup;
         }
+# if SDL_VERSION_ATLEAST(3, 0, 0)
+        if (SDL_GetAudioStreamQueued(stream) < (int)wav_data_len) {
+            SDL_PutAudioStreamData(stream, wav_data, wav_data_len);
+        }
 
         SDL_ResumeAudioStreamDevice(stream);
+# else
+        if(SDL_QueueAudio(*stream, wav_data, wav_data_len) < 0) {
+            status = -1;
+            fprintf(stderr, "Audio could not be queued: %s\n", SDL_GetError());
+            goto main_cleanup;
+        }
+
+        SDL_PauseAudioDevice(*stream, 0);
+# endif
+ 
     }
 
     if (fseek(vidtxt_info->fp, VIDTXT_HEADER_SIZE + vidtxt_info->audio_size, 0)) {
@@ -527,10 +600,6 @@ ffmpeg_cleanup:
 
     while (ch_read) {
         refresh();
-        
-        if (vidtxt_info->audio_size > 0 && SDL_GetAudioStreamQueued(stream) < (int)wav_data_len) {
-            SDL_PutAudioStreamData(stream, wav_data, wav_data_len);
-        }
 
         for (uint32_t line = 0; line < vidtxt_info->print_lines; line++) {
             ch_read = fread(line_contents, sizeof(char), vidtxt_info->print_columns, vidtxt_info->fp);
@@ -579,6 +648,12 @@ ffmpeg_cleanup:
 main_cleanup:
     free(line_contents);
     free(wav_data);
+# if !SDL_VERSION_ATLEAST(3, 0, 0)
+    if (stream) {
+        SDL_CloseAudioDevice(*stream);
+        free(stream);
+    }
+#endif
     av_free(wav_buffer);
     fclose(vidtxt_info->fp);
     free(vidtxt_info);
