@@ -18,7 +18,7 @@ import threading
 from types import TracebackType
 from PIL import Image
 import os
-from typing import Union
+from typing import Union, Type, List
 
 __author__ = "Revnoplex"
 __copyright__ = f"Copyright (C) {__author__} 2022-2024"
@@ -32,8 +32,8 @@ class OpenError(BaseException):
 
 
 def exception_handler(
-        exception_type: Union[BaseException, type[BaseException]], exception: BaseException,
-        exception_traceback: Union[TracebackType, list, list[traceback.FrameSummary]]
+        exception_type: Union[BaseException, Type[BaseException]], exception: BaseException,
+        exception_traceback: Union[TracebackType, list, List[traceback.FrameSummary]]
 ):
     exception_types = (KeyboardInterrupt, EOFError, SystemExit)
     if exception_type in exception_types or isinstance(exception_type, exception_types):
@@ -79,7 +79,7 @@ def check_for_errors(command: subprocess.Popen, allow_read=False):
         return line
 
 
-def dump_frames(video_filename: str, fps: float, frame_size: list[int]):
+def dump_frames(video_filename: str, fps: float, frame_size: List[int]):
     terminal_columns, terminal_lines = frame_size
     if url:
         formatted_name = video_filename.split("/")[-1].split("?")[0].strip("/")
@@ -237,7 +237,7 @@ def dump_frames(video_filename: str, fps: float, frame_size: list[int]):
 
 
 def render_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
-                  error: Queue, video_filename: str, total_frame_count: int, frame_size: list[int]):
+                  error: Queue, video_filename: str, total_frame_count: int, frame_size: List[int]):
     try:
         current_frame = 0
         avg_interval_list = []
@@ -277,7 +277,7 @@ def render_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                                '@', '$']
             frame_width = frame.width
             h_line_idx = 0
-            frame_list: list[list[Union[int, str], ]] = []
+            frame_list: List[List[Union[int, str], ]] = []
             frame_num = 0
             line = ""
             for index, pixel in enumerate(img_data):
@@ -775,7 +775,7 @@ if __name__ == '__main__':
         frame_rate = 30.0 if not frame_rate else frame_rate
         video_duration = (total_frames // frame_rate) + (total_frames % frame_rate) / frame_rate
         global_interval = (1 / frame_rate)
-        video_size: list[int] = (
+        video_size: List[int] = (
             (lambda px: [args.columns or px.columns, args.lines or px.lines])(shutil.get_terminal_size())
         )
         if args.video_size:
