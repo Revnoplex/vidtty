@@ -7,7 +7,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <math.h>
-#include <ncurses.h>
+#include <curses.h>
 #include <sys/ioctl.h>
 #include <stdlib.h>
 #include <unistd.h>
