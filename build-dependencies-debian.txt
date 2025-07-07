@@ -1,0 +1,8 @@
+build-essential
+dh-autoreconf
+libncurses-dev
+libavformat-dev
+# debian 13 and later
+libsdl3
+# otherwise
+libsdl2-dev

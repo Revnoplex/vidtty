@@ -1,0 +1,4 @@
+base-devel
+ncurses
+sdl3
+ffmpeg
