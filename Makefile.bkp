@@ -1,0 +1,17 @@
+SDL_VERSION=SDL3
+LDFLAGS=-lm -lncurses -l$(SDL_VERSION) -lavformat -lavutil -lavcodec -lswresample
+DEBUG_FLAGS=-g -fsanitize=address -fsanitize=undefined
+TEST_FLAGS=-c -o /dev/null $(LDFLAGS) -O -Wall -Wextra
+
+vidtty:
+	mkdir -p build
+	cc -o build/vidtty $(LDFLAGS) src/vidtty.c
+
+vidtty_debug:
+	mkdir -p build
+	cc -o build/vidtty-debug $(LDFLAGS) $(DEBUG_FLAGS) src/vidtty.c
+
+vidtty_test:
+	cc $(TEST_FLAGS) vidtty.c
+
+vidtty_debug_test: vidtty_test vidtty_debug
