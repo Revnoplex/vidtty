@@ -24,7 +24,7 @@ This program has only been tested to work on some Linux and macOS environments l
 | Arch Linux                     | amd64 (x86_64)  |
 | Debian 12                      | amd64 (x86_64)  |
 
-The python version program has been tested to work on python 3.8 and later.
+The python version of the program has been tested to work on python 3.8 and later.
 
 It might work on Windows if you use cygwin, Otherwise you will manually need to install a curses package, and you may run into environment related errors such as the behaviour of shared memory objects.
 
