@@ -121,10 +121,22 @@ VIDTXTInfo *new_vidtxt_info(FILE *fp, char *filename) {
     vidtxt_info->columns = htobe32(vidtxt_info->columns);
     vidtxt_info->lines = htobe32(vidtxt_info->lines);
     uint64_t raw_fps;
+    double new_fps;
     memmove(&raw_fps, &vidtxt_info->fps, sizeof(raw_fps));
     raw_fps = htobe64(raw_fps);
-    memmove(&vidtxt_info->fps, &raw_fps, sizeof(vidtxt_info->fps));
+    memmove(&new_fps, &raw_fps, sizeof(new_fps));
     vidtxt_info->audio_size = htobe64(vidtxt_info->audio_size);
+
+    if (new_fps >= 0 && 1/new_fps != INFINITY) {
+        vidtxt_info->fps = new_fps;
+    } else {
+        fprintf(stderr, "Warning: Error interpreting fps value in big endian. Trying in little endian...\n");
+    }
+    if (vidtxt_info->fps < 0) {
+        fprintf(stderr, "Error interpreting fps value. Possibly wrong endian value\n");
+        free(vidtxt_info);
+        return NULL;
+    }
 
     struct stat file_stat;
     if (fstat(fileno(vidtxt_info->fp), &file_stat)) {
@@ -473,27 +485,7 @@ ffmpeg_cleanup:
             fprintf(stderr, "Couldn't load .wav file: %s\n", SDL_GetError());
             goto main_cleanup;
         }
-// SDL_AudioDeviceID deviceId = SDL_OpenAudioDevice(NULL, 0, &wavSpec, NULL, 0);
-//             if(!deviceId)
-//             {
-//                 printf("Audio device could not be opened!\n"
-//                        "SDL_Error: %s\n", SDL_GetError());
-//                 SDL_FreeWAV(wavBuffer);
-//                 return 0;
-//             }
 
-//             // Queue audio (~ Add to playlist)
-//             if(SDL_QueueAudio(deviceId, wavBuffer, wavLength) < 0)
-//             {
-//                 printf("Audio could not be queued!\n"
-//                        "SDL_Error: %s\n", SDL_GetError());
-//                 SDL_CloseAudioDevice(deviceId);
-//                 SDL_FreeWAV(wavBuffer);
-//                 return 0;
-//             }
-
-//             // Play audio
-//             SDL_PauseAudioDevice(deviceId, 0);
 # if SDL_VERSION_ATLEAST(3, 0, 0)
         stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
 # else
@@ -536,6 +528,7 @@ ffmpeg_cleanup:
         fprintf(stderr, "Unable to seek to position %lu\n", VIDTXT_HEADER_SIZE + vidtxt_info->audio_size);
         goto main_cleanup;
     }
+    
     double interval = 1 / vidtxt_info->fps;
 
     struct winsize term_size;
@@ -585,7 +578,10 @@ ffmpeg_cleanup:
     cbreak();
     curses_init = 1;
 
+    # define DRAW_ERROR_TOLERANCE 256
+
     int32_t draw_successful;
+    int32_t draw_errors = 0;
     line_contents = malloc(vidtxt_info->print_columns);
     
     uint64_t pre_draw;
@@ -619,14 +615,24 @@ ffmpeg_cleanup:
                     draw_successful = mvaddchnstr(line, 0, ch_array, vidtxt_info->print_columns);
                     free(ch_array);
                 }
+                
             }
             if (draw_successful == ERR) {
                 break;
+            } else {
+                draw_errors = 0;
+                
             }
         }
         if (draw_successful == ERR) {
             draw_successful = 0;
+            draw_errors++;
             continue;
+        }
+        if (draw_errors >= DRAW_ERROR_TOLERANCE) {
+            status = -1;
+            asprintf(&queued_err_msg, "Too many draw errors: errno %d: %s. Stopping...\n", errno, strerror(errno));
+            goto main_cleanup;
         }
         if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
             status = -1;
