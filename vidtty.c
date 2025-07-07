@@ -32,6 +32,7 @@
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libswresample/swresample.h>
+#include <libavutil/version.h>
 
 #define PROGRAM_NAME "vidtty"
 #define VERSION "2.0.0a"
@@ -295,11 +296,15 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
         encoder_ctx->sample_fmt = AV_SAMPLE_FMT_S16;
         encoder_ctx->sample_rate = decoder_ctx->sample_rate;
         encoder_ctx->time_base = (AVRational){1, decoder_ctx->sample_rate};
-
+# if LIBAVUTIL_VERSION_MAJOR >= 57
         if ((status = av_channel_layout_copy(&encoder_ctx->ch_layout, &decoder_ctx->ch_layout)) < 0) {
             fprintf(stderr, "Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
         }
+# else 
+        encoder_ctx->channel_layout = decoder_ctx->channel_layout;
+        encoder_ctx->channels = decoder_ctx->channels;
+# endif
         if ((status = avcodec_open2(encoder_ctx, encoder, NULL)) < 0) {
             fprintf(stderr, "Could not open encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
@@ -313,11 +318,22 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
             goto ffmpeg_cleanup;
         }
 
+# if LIBAVUTIL_VERSION_MAJOR >= 57
         status = swr_alloc_set_opts2(
             &swr_ctx,
             &encoder_ctx->ch_layout, encoder_ctx->sample_fmt, encoder_ctx->sample_rate,
             &decoder_ctx->ch_layout, decoder_ctx->sample_fmt, decoder_ctx->sample_rate,
-            0, NULL);
+            0, NULL
+        );
+# else
+        swr_ctx = swr_alloc_set_opts(
+            NULL,
+            encoder_ctx->channel_layout, encoder_ctx->sample_fmt, encoder_ctx->sample_rate,
+            decoder_ctx->channel_layout, decoder_ctx->sample_fmt, decoder_ctx->sample_rate,
+            0, NULL
+        );
+        status = (swr_ctx == NULL) ? AVERROR(ENOMEM) : 0;
+# endif
         if (status < 0) {
             fprintf(stderr, "Failed to allocate SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
@@ -332,7 +348,16 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
         converted = av_frame_alloc();
         converted->format = encoder_ctx->sample_fmt;
         converted->sample_rate = encoder_ctx->sample_rate;
-        av_channel_layout_copy(&converted->ch_layout, &encoder_ctx->ch_layout);
+
+# if LIBAVUTIL_VERSION_MAJOR >= 57
+        if ((status = av_channel_layout_copy(&converted->ch_layout, &encoder_ctx->ch_layout)) < 0) {
+            fprintf(stderr, "Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto ffmpeg_cleanup;
+        }
+# else 
+        converted->channel_layout = encoder_ctx->channel_layout;
+        converted->channels = encoder_ctx->channels;
+# endif
 
         int64_t next_pts = 0;
         uint64_t frame_count = 0;
@@ -355,10 +380,15 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
                 converted->format       = encoder_ctx->sample_fmt;
                 converted->sample_rate  = encoder_ctx->sample_rate;
 
+# if LIBAVUTIL_VERSION_MAJOR >= 57
                 if ((status = av_channel_layout_copy(&converted->ch_layout, &encoder_ctx->ch_layout)) < 0) {
                     fprintf(stderr, "Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     goto ffmpeg_cleanup;
                 }
+# else 
+                converted->channel_layout = encoder_ctx->channel_layout;
+                converted->channels = encoder_ctx->channels;
+# endif
                 
                 if ((status = av_frame_get_buffer(converted, 0)) < 0) {
                     fprintf(stderr, "Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
@@ -415,7 +445,9 @@ ffmpeg_cleanup:
         av_packet_free(&pkt);
         av_frame_free(&decoded);
         if (converted) {
+# if LIBAVUTIL_VERSION_MAJOR >= 57
             av_channel_layout_uninit(&converted->ch_layout);
+# endif
             av_frame_free(&converted);
         }
         swr_free(&swr_ctx);
