@@ -5,11 +5,11 @@ TEST_FLAGS=-c -o /dev/null $(LDFLAGS) -O -Wall -Wextra
 
 vidtty:
 	mkdir -p build
-	cc -o build/vidtty $(LDFLAGS) src/vidtty.c
+	cc -o build/vidtty $(LDFLAGS) vidtty.c
 
 vidtty_debug:
 	mkdir -p build
-	cc -o build/vidtty-debug $(LDFLAGS) $(DEBUG_FLAGS) src/vidtty.c
+	cc -o build/vidtty-debug $(LDFLAGS) $(DEBUG_FLAGS) vidtty.c
 
 vidtty_test:
 	cc $(TEST_FLAGS) vidtty.c
