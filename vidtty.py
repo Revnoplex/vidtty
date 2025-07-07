@@ -18,6 +18,7 @@ import threading
 from types import TracebackType
 from PIL import Image
 import os
+from typing import Union
 
 __author__ = "Revnoplex"
 __copyright__ = f"Copyright (C) {__author__} 2022-2024"
@@ -31,8 +32,8 @@ class OpenError(BaseException):
 
 
 def exception_handler(
-        exception_type: BaseException | type[BaseException], exception: BaseException,
-        exception_traceback: TracebackType | list | list[traceback.FrameSummary]
+        exception_type: Union[BaseException, type[BaseException]], exception: BaseException,
+        exception_traceback: Union[TracebackType, list, list[traceback.FrameSummary]]
 ):
     exception_types = (KeyboardInterrupt, EOFError, SystemExit)
     if exception_type in exception_types or isinstance(exception_type, exception_types):
@@ -276,7 +277,7 @@ def render_frames(frames: Queue, dumped_frames: Value, dumping_interval: Value,
                                '@', '$']
             frame_width = frame.width
             h_line_idx = 0
-            frame_list: list[list[int | str, ]] = []
+            frame_list: list[list[Union[int, str], ]] = []
             frame_num = 0
             line = ""
             for index, pixel in enumerate(img_data):
