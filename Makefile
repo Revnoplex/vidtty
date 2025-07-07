@@ -281,7 +281,7 @@ top_builddir = .
 top_srcdir = .
 AUTOMAKE_OPTIONS = foreign
 vidtty_SOURCES = vidtty.c
-vidtty_LDADD = $(SDL_LIBS) -lm -lncurses -lSDL3 -lavformat -lavutil -lavcodec -lswresample
+vidtty_LDADD = $(SDL_LIBS) -lm -lncurses -lavformat -lavutil -lavcodec -lswresample
 AM_CPPFLAGS = $(SDL_CFLAGS)
 all: all-am
 
