@@ -52,7 +52,7 @@ The binary dependencies are listed in the [binary-requirements.txt](./binary-req
 The general names build dependencies are listed in [build-dependencies-universal.txt](./build-dependencies-universal.txt). These will be different between systems and just using these names in package managers is not guaranteed to work. Instead use one of the `build-dependencies-$(OS_BASE).txt` files with your package manager for package names closer to your system with `OS_BASE` being the operating system closest to yours.
 
 **Example**: on Arch based distros run
-```sh
+```
 # pacman -S --needed - < build-dependencies-archlinux.txt
 ```
 
