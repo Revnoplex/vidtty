@@ -1,0 +1,6 @@
+build-essential
+autoconf
+ncurses
+ffmpeg
+x11-repo
+sdl2
