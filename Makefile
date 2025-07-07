@@ -105,7 +105,8 @@ am__installdirs = "$(DESTDIR)$(bindir)"
 PROGRAMS = $(bin_PROGRAMS)
 am_vidtty_OBJECTS = vidtty.$(OBJEXT)
 vidtty_OBJECTS = $(am_vidtty_OBJECTS)
-vidtty_DEPENDENCIES =
+am__DEPENDENCIES_1 =
+vidtty_DEPENDENCIES = $(am__DEPENDENCIES_1)
 AM_V_P = $(am__v_P_$(V))
 am__v_P_ = $(am__v_P_$(AM_DEFAULT_VERBOSITY))
 am__v_P_0 = false
@@ -192,12 +193,12 @@ AUTOMAKE = ${SHELL} '/home/bsauter/vidtty/missing' automake-1.18
 AWK = gawk
 CC = gcc
 CCDEPMODE = depmode=gcc3
-CFLAGS = -g -O2
+CFLAGS = -g -O2 
 CPPFLAGS = 
 CSCOPE = cscope
 CTAGS = ctags
 CYGPATH_W = echo
-DEFS = -DPACKAGE_NAME=\"vidtty\" -DPACKAGE_TARNAME=\"vidtty\" -DPACKAGE_VERSION=\"2.0.0a\" -DPACKAGE_STRING=\"vidtty\ 2.0.0a\" -DPACKAGE_BUGREPORT=\"revnoplex.business@protonmail.com\" -DPACKAGE_URL=\"\" -DPACKAGE=\"vidtty\" -DVERSION=\"2.0.0a\"
+DEFS = -DPACKAGE_NAME=\"vidtty\" -DPACKAGE_TARNAME=\"vidtty\" -DPACKAGE_VERSION=\"2.0.0a\" -DPACKAGE_STRING=\"vidtty\ 2.0.0a\" -DPACKAGE_BUGREPORT=\"revnoplex.business@protonmail.com\" -DPACKAGE_URL=\"\" -DPACKAGE=\"vidtty\" -DVERSION=\"2.0.0a\" -DHAVE_SDL3=1
 DEPDIR = .deps
 ECHO_C = 
 ECHO_N = -n
@@ -211,7 +212,7 @@ INSTALL_SCRIPT = ${INSTALL}
 INSTALL_STRIP_PROGRAM = $(install_sh) -c -s
 LDFLAGS = 
 LIBOBJS = 
-LIBS = 
+LIBS =  -lSDL3
 LTLIBOBJS = 
 MAKEINFO = ${SHELL} '/home/bsauter/vidtty/missing' makeinfo
 MKDIR_P = /usr/bin/mkdir -p
@@ -224,6 +225,11 @@ PACKAGE_TARNAME = vidtty
 PACKAGE_URL = 
 PACKAGE_VERSION = 2.0.0a
 PATH_SEPARATOR = :
+PKG_CONFIG = /usr/bin/pkg-config
+PKG_CONFIG_LIBDIR = 
+PKG_CONFIG_PATH = 
+SDL_CFLAGS = 
+SDL_LIBS = -lSDL3
 SET_MAKE = 
 SHELL = /bin/sh
 STRIP = 
@@ -275,7 +281,8 @@ top_builddir = .
 top_srcdir = .
 AUTOMAKE_OPTIONS = foreign
 vidtty_SOURCES = vidtty.c
-vidtty_LDADD = -lm -lncurses -lSDL3 -lavformat -lavutil -lavcodec -lswresample
+vidtty_LDADD = $(SDL_LIBS) -lm -lncurses -lSDL3 -lavformat -lavutil -lavcodec -lswresample
+AM_CPPFLAGS = $(SDL_CFLAGS)
 all: all-am
 
 .SUFFIXES:

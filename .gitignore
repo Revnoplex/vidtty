@@ -169,6 +169,7 @@ autom4te.cache
 /config.status
 /config.sub
 /configure
+/configure~
 /configure.scan
 /depcomp
 /install-sh
