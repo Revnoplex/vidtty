@@ -12,4 +12,4 @@ sdl3
 libavformat
 libavutil
 libavcodec
-libavresample
+libswresample

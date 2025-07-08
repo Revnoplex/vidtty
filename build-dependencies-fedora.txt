@@ -1,0 +1,4 @@
+dh-autoreconf
+ncurses-devel
+sdl3-devel
+libavformat-free
