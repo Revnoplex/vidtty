@@ -29,6 +29,8 @@ This program has only been tested to work on some Linux and macOS environments l
 | Termux 0.118.3 (on Android 16) | AArch64 (arm64) |
 | Debian 12 (on Android 16)      | AArch64 (arm64) |
 
+The C version will not currently compile on fedora 42 due to issues with where ffmpeg headers are stored.
+
 The python version of the program has been tested to work on python 3.8 and later.
 
 It might work on Windows if you use cygwin, Otherwise you will manually need to install a curses package, and you may run into environment related errors such as the behaviour of shared memory objects.
