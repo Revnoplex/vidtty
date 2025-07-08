@@ -1,4 +1,4 @@
 dh-autoreconf
 ncurses-devel
 SDL3-devel
-libavformat-free
+libavformat-free-devel
