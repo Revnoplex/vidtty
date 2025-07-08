@@ -1,5 +1,3 @@
-#include <libavutil/avutil.h>
-#include <libavutil/mem.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <limits.h>
