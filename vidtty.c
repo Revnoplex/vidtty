@@ -10,27 +10,57 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
-# if __has_include(<SDL3/SDL.h>)
-#   include <SDL3/SDL_audio.h>
-#   include <SDL3/SDL_version.h>
-#   include <SDL3/SDL_iostream.h>
-#   include <SDL3/SDL_init.h>
-# elif __has_include(<SDL2/SDL.h>)
-#   include <SDL2/SDL_audio.h>
-#   include <SDL2/SDL_version.h>
-#   include <SDL2/SDL_rwops.h>
-#   include <SDL2/SDL.h>
-# else
-#   error "Requires SDL2 or later"
-# endif
-
 #include <signal.h>
+
+#if __has_include(<SDL3/SDL.h>)
+
+#include <SDL3/SDL_audio.h>
+#include <SDL3/SDL_version.h>
+#include <SDL3/SDL_iostream.h>
+#include <SDL3/SDL_init.h>
+
+#elif __has_include(<SDL2/SDL.h>)
+
+#include <SDL2/SDL_audio.h>
+#include <SDL2/SDL_version.h>
+#include <SDL2/SDL_rwops.h>
+#include <SDL2/SDL.h>
+
+#else
+
+#error "Requires SDL2 or later"
+
+#endif
+
+
+
+#if __has_include(<libavformat/version.h>)
+
+#include <libavutil/avutil.h>
+#include <libavutil/mem.h>
 #include <libavformat/avio.h>
 #include <libavutil/error.h>
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libswresample/swresample.h>
 #include <libavutil/version.h>
+
+#elif __has_include(<ffmpeg/libavformat/version.h>)
+
+#include <ffmpeg/libavutil/avutil.h>
+#include <ffmpeg/libavutil/mem.h>
+#include <ffmpeg/libavformat/avio.h>
+#include <ffmpeg/libavutil/error.h>
+#include <ffmpeg/libavformat/avformat.h>
+#include <ffmpeg/libavcodec/avcodec.h>
+#include <ffmpeglibswresample/swresample.h>
+#include <ffmpeg/libavutil/version.h>
+
+#else
+
+#error "Cannot find ffmpeg headers"
+
+#endif
 
 #define PROGRAM_NAME "vidtty"
 #define VERSION "2.0.0a"
@@ -225,11 +255,11 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
     uint8_t *wav_data = NULL;
     uint32_t wav_data_len = 0;
     uint8_t *wav_buffer = NULL;
-# if SDL_VERSION_ATLEAST(3, 0, 0)
+#if SDL_VERSION_ATLEAST(3, 0, 0)
     SDL_AudioStream *stream = NULL;
-# else
+#else
     SDL_AudioDeviceID *stream = NULL;
-# endif
+#endif
     AVIOContext *avio_ctx = NULL;
     AVPacket *pkt = NULL;
     AVFrame *decoded = NULL;
@@ -294,15 +324,15 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
         encoder_ctx->sample_fmt = AV_SAMPLE_FMT_S16;
         encoder_ctx->sample_rate = decoder_ctx->sample_rate;
         encoder_ctx->time_base = (AVRational){1, decoder_ctx->sample_rate};
-# if LIBAVUTIL_VERSION_MAJOR >= 57
+#if LIBAVUTIL_VERSION_MAJOR >= 57
         if ((status = av_channel_layout_copy(&encoder_ctx->ch_layout, &decoder_ctx->ch_layout)) < 0) {
             fprintf(stderr, "Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
         }
-# else 
+#else 
         encoder_ctx->channel_layout = decoder_ctx->channel_layout;
         encoder_ctx->channels = decoder_ctx->channels;
-# endif
+#endif
         if ((status = avcodec_open2(encoder_ctx, encoder, NULL)) < 0) {
             fprintf(stderr, "Could not open encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
@@ -316,14 +346,14 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
             goto ffmpeg_cleanup;
         }
 
-# if LIBAVUTIL_VERSION_MAJOR >= 57
+#if LIBAVUTIL_VERSION_MAJOR >= 57
         status = swr_alloc_set_opts2(
             &swr_ctx,
             &encoder_ctx->ch_layout, encoder_ctx->sample_fmt, encoder_ctx->sample_rate,
             &decoder_ctx->ch_layout, decoder_ctx->sample_fmt, decoder_ctx->sample_rate,
             0, NULL
         );
-# else
+#else
         swr_ctx = swr_alloc_set_opts(
             NULL,
             encoder_ctx->channel_layout, encoder_ctx->sample_fmt, encoder_ctx->sample_rate,
@@ -331,7 +361,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
             0, NULL
         );
         status = (swr_ctx == NULL) ? AVERROR(ENOMEM) : 0;
-# endif
+#endif
         if (status < 0) {
             fprintf(stderr, "Failed to allocate SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
@@ -347,15 +377,15 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
         converted->format = encoder_ctx->sample_fmt;
         converted->sample_rate = encoder_ctx->sample_rate;
 
-# if LIBAVUTIL_VERSION_MAJOR >= 57
+#if LIBAVUTIL_VERSION_MAJOR >= 57
         if ((status = av_channel_layout_copy(&converted->ch_layout, &encoder_ctx->ch_layout)) < 0) {
             fprintf(stderr, "Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
         }
-# else 
+#else 
         converted->channel_layout = encoder_ctx->channel_layout;
         converted->channels = encoder_ctx->channels;
-# endif
+#endif
 
         int64_t next_pts = 0;
         uint64_t frame_count = 0;
@@ -378,15 +408,15 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
                 converted->format       = encoder_ctx->sample_fmt;
                 converted->sample_rate  = encoder_ctx->sample_rate;
 
-# if LIBAVUTIL_VERSION_MAJOR >= 57
+#if LIBAVUTIL_VERSION_MAJOR >= 57
                 if ((status = av_channel_layout_copy(&converted->ch_layout, &encoder_ctx->ch_layout)) < 0) {
                     fprintf(stderr, "Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     goto ffmpeg_cleanup;
                 }
-# else 
+#else 
                 converted->channel_layout = encoder_ctx->channel_layout;
                 converted->channels = encoder_ctx->channels;
-# endif
+#endif
                 
                 if ((status = av_frame_get_buffer(converted, 0)) < 0) {
                     fprintf(stderr, "Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
@@ -443,9 +473,9 @@ ffmpeg_cleanup:
         av_packet_free(&pkt);
         av_frame_free(&decoded);
         if (converted) {
-# if LIBAVUTIL_VERSION_MAJOR >= 57
+#if LIBAVUTIL_VERSION_MAJOR >= 57
             av_channel_layout_uninit(&converted->ch_layout);
-# endif
+#endif
             av_frame_free(&converted);
         }
         swr_free(&swr_ctx);
@@ -466,7 +496,7 @@ ffmpeg_cleanup:
 
         SDL_AudioSpec spec;
         
-# if SDL_VERSION_ATLEAST(3, 0, 0)
+#if SDL_VERSION_ATLEAST(3, 0, 0)
         if (!SDL_SetAppMetadata(PROGRAM_NAME, VERSION, PROGRAM_NAME)) {
             status = -1;
             fprintf(stderr, "Error setting mixer metadata: %s\n", SDL_GetError());
@@ -478,7 +508,7 @@ ffmpeg_cleanup:
             goto main_cleanup;
         }
 
-# endif
+#endif
 
         // SDL takes over signal handling for SIGINT and SIGTERM. We dont't want that so we change it back.
 
@@ -486,11 +516,11 @@ ffmpeg_cleanup:
         struct sigaction int_action, term_action;
         sigaction(SIGINT, NULL, &int_action);
         sigaction(SIGTERM, NULL, &term_action);
-# if SDL_VERSION_ATLEAST(3, 0, 0)
+#if SDL_VERSION_ATLEAST(3, 0, 0)
         if (!SDL_Init(SDL_INIT_AUDIO)) {
-# else 
+#else 
         if (SDL_Init(SDL_INIT_AUDIO) < 0 ) {
-# endif
+#endif
             status = -1;
             fprintf(stderr, "SDL_Init Error: %s\n", SDL_GetError());
             goto main_cleanup;
@@ -500,43 +530,43 @@ ffmpeg_cleanup:
         sigaction(SIGINT, &int_action, NULL);
         sigaction(SIGTERM, &term_action, NULL);
 
-# if SDL_VERSION_ATLEAST(3, 0, 0)
+#if SDL_VERSION_ATLEAST(3, 0, 0)
         SDL_IOStream *wav_stream = SDL_IOFromMem(wav_buffer, wav_size);
         int32_t load_result = SDL_LoadWAV_IO(wav_stream, 1, &spec, &wav_data, &wav_data_len);
-# else
+#else
         SDL_RWops *wav_stream = SDL_RWFromMem(wav_buffer, wav_size);
         SDL_AudioSpec *spec_result;
         spec_result = SDL_LoadWAV_RW(wav_stream, 1, &spec, &wav_data, &wav_data_len);
         int32_t load_result = (spec_result != NULL);
         spec = *spec_result;
-# endif
+#endif
         if (!load_result) {
             status = -1;
             fprintf(stderr, "Couldn't load .wav file: %s\n", SDL_GetError());
             goto main_cleanup;
         }
 
-# if SDL_VERSION_ATLEAST(3, 0, 0)
+#if SDL_VERSION_ATLEAST(3, 0, 0)
         stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
-# else
+#else
         stream = malloc(sizeof(SDL_AudioDeviceID));
         SDL_AudioDeviceID device_id = SDL_OpenAudioDevice(NULL, 0, &spec, NULL, 0);
         if (device_id) {
             *stream = device_id;
         }
-# endif
+#endif
         if (!stream) {
             status = -1;
             fprintf(stderr, "Couldn't create audio stream: %s\n", SDL_GetError());
             goto main_cleanup;
         }
-# if SDL_VERSION_ATLEAST(3, 0, 0)
+#if SDL_VERSION_ATLEAST(3, 0, 0)
         if (SDL_GetAudioStreamQueued(stream) < (int)wav_data_len) {
             SDL_PutAudioStreamData(stream, wav_data, wav_data_len);
         }
 
         SDL_ResumeAudioStreamDevice(stream);
-# else
+#else
         if(SDL_QueueAudio(*stream, wav_data, wav_data_len) < 0) {
             status = -1;
             fprintf(stderr, "Audio could not be queued: %s\n", SDL_GetError());
@@ -544,7 +574,7 @@ ffmpeg_cleanup:
         }
 
         SDL_PauseAudioDevice(*stream, 0);
-# endif
+#endif
  
     }
 
@@ -608,7 +638,7 @@ ffmpeg_cleanup:
     cbreak();
     curses_init = 1;
 
-    # define DRAW_ERROR_TOLERANCE 256
+    #define DRAW_ERROR_TOLERANCE 256
 
     int32_t draw_successful;
     int32_t draw_errors = 0;
@@ -684,7 +714,7 @@ ffmpeg_cleanup:
 main_cleanup:
     free(line_contents);
     free(wav_data);
-# if !SDL_VERSION_ATLEAST(3, 0, 0)
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
     if (stream) {
         SDL_CloseAudioDevice(*stream);
         free(stream);
