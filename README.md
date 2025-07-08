@@ -27,6 +27,7 @@ This program has only been tested to work on some Linux and macOS environments l
 | Ubuntu 22.04                   | amd64 (x86_64)  |
 | Ubuntu 24.04                   | amd64 (x86_64)  |
 | Termux 0.118.3 (on Android 16) | AArch64 (arm64) |
+| Debian 12 (on Android 16)      | AArch64 (arm64) |
 
 The python version of the program has been tested to work on python 3.8 and later.
 
