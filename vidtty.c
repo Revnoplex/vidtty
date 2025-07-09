@@ -11,6 +11,14 @@
 #include <unistd.h>
 #include <time.h>
 #include <signal.h>
+#include <libavutil/avutil.h>
+#include <libavutil/mem.h>
+#include <libavformat/avio.h>
+#include <libavutil/error.h>
+#include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
+#include <libswresample/swresample.h>
+#include <libavutil/version.h>
 
 #if __has_include(<SDL3/SDL.h>)
 
@@ -29,36 +37,6 @@
 #else
 
 #error "Requires SDL2 or later"
-
-#endif
-
-
-
-#if __has_include(<libavformat/version.h>)
-
-#include <libavutil/avutil.h>
-#include <libavutil/mem.h>
-#include <libavformat/avio.h>
-#include <libavutil/error.h>
-#include <libavformat/avformat.h>
-#include <libavcodec/avcodec.h>
-#include <libswresample/swresample.h>
-#include <libavutil/version.h>
-
-#elif __has_include(<ffmpeg/libavformat/version.h>)
-
-#include <ffmpeg/libavutil/avutil.h>
-#include <ffmpeg/libavutil/mem.h>
-#include <ffmpeg/libavformat/avio.h>
-#include <ffmpeg/libavutil/error.h>
-#include <ffmpeg/libavformat/avformat.h>
-#include <ffmpeg/libavcodec/avcodec.h>
-#include <ffmpeglibswresample/swresample.h>
-#include <ffmpeg/libavutil/version.h>
-
-#else
-
-#error "Cannot find ffmpeg headers"
 
 #endif
 
