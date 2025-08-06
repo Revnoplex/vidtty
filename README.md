@@ -32,10 +32,10 @@ This program has only been tested to work on some Linux and macOS environments l
 
 The python version of the program has been tested to work on python 3.8 and later.
 
-It might work on Windows if you use cygwin, Otherwise you will manually need to install a curses package, and you may run into environment related errors such as the behaviour of shared memory objects.
+Neither Program currently has been testet to work on Windows.
 
 ### Supported Files
-Only mp4 files have been tested and most are guaranteed to work. FFmpeg might not support some formats.
+Most video file types should work as they are decoded with ffmpeg.
 
 The C version only currently supports playing .vidtxt files which you will have to generate using the python version with
 ```sh
@@ -51,10 +51,10 @@ Just install the packages in the [requirements.txt](./requirements.txt) file
 $ python3 -m pip install -r requirements.txt
 ```
 
-### Installing Binary Dependencies (Python Version)
+### Installing Binary Dependencies
 The binary dependencies are listed in the [binary-requirements.txt](./binary-requirements.txt) file. You should be able to install them using your package manager.
 
-### Installing Build Dependencies (C version)
+## Installing Build Dependencies (C version)
 The general names build dependencies are listed in [build-dependencies-universal.txt](./build-dependencies-universal.txt). These will be different between systems and just using these names in package managers is not guaranteed to work. Instead use one of the `build-dependencies-$(OS_BASE).txt` files with your package manager for package names closer to your system with `OS_BASE` being the operating system closest to yours.
 
 **Example**: on Arch based distros run
