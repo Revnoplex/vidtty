@@ -749,9 +749,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
 int32_t print_help(char *filename, VIDTTYOptions *options){
     (void)(filename);
     VIDTTYArguments *arguments = options->arguments;
-    if (options->columns) {
-        printf("%u\n", options->columns);
-    }
+
     printf("Usage: %s [OPTIONS] FILE\n", PROGRAM_NAME);
     printf("Options:\n");
     for (uint32_t argument = 0; argument < arguments->argumentc; argument++) {
