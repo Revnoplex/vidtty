@@ -19,6 +19,8 @@
 #include <libavcodec/avcodec.h>
 #include <libswresample/swresample.h>
 #include <libavutil/version.h>
+#include <libswscale/swscale.h>
+#include <libavutil/imgutils.h>
 
 #if __has_include(<SDL3/SDL.h>)
 
@@ -47,6 +49,7 @@
 #define AUTHOR "Revnoplex"
 #define VIDTXT_HEADER_SIZE 64
 #define VID_METADATA_START 8
+#define DEFAULT_VIDTXT_FILENAME "output.vidtxt"
 
 typedef struct _VIDTTYOptions VIDTTYOptions;
 typedef struct _VIDTTYArguments VIDTTYArguments;
@@ -78,13 +81,28 @@ typedef int32_t (*stdcall)(char *, VIDTTYOptions*);
 typedef struct {
     char *name;
     int8_t type;
+    /*
+    Types:
+    0. Toggle
+    1. Value
+    2. Function
+    */
     stdcall associated_call;
+    // the accociated function if type 2.
     char *description;
     char **aliases;
     int32_t alias_count;
     char *usage;
     void *associated_option;
+    // The VIDTTYOptions associated with the argument.
     int8_t associated_typedef;
+     /*
+    associated_typedef is the value type for a type 2 option.
+    Types:
+    0. Signed Integer
+    1. Unsigned Inteter
+    2. String
+    */
 } VIDTTYArgument;
 
 typedef struct _VIDTTYArguments {
@@ -102,6 +120,19 @@ VIDTXTInfo *new_vidtxt_info(FILE *fp, char *filename) {
     }
 
     vidtxt_info->fp = fp;
+
+    uint64_t sig_value = 0;
+    fread(&sig_value, 6, 1, vidtxt_info->fp);
+
+    if (be64toh(sig_value) != 0x5649445458540000) {
+        if (filename == NULL) {
+            fprintf(stderr, "The file is not vidtxt format!\n");
+        } else {
+            fprintf(stderr, "%s is not vidtxt format!\n", filename);
+        }
+        free(vidtxt_info);
+        return NULL;
+    }
 
     if (fseek(vidtxt_info->fp, VID_METADATA_START,0)) {
         fprintf(stderr, "Error seeking to position %d: Seek error %d: %s\n", VID_METADATA_START, errno, strerror(errno));
@@ -123,16 +154,18 @@ VIDTXTInfo *new_vidtxt_info(FILE *fp, char *filename) {
 
     if (total_reads != 4) {
         fprintf(stderr, "Error reading header\n");
+        free(vidtxt_info);
+        return NULL;
     }
 
-    vidtxt_info->columns = htobe32(vidtxt_info->columns);
-    vidtxt_info->lines = htobe32(vidtxt_info->lines);
+    vidtxt_info->columns = be32toh(vidtxt_info->columns);
+    vidtxt_info->lines = be32toh(vidtxt_info->lines);
     uint64_t raw_fps;
     double new_fps;
     memmove(&raw_fps, &vidtxt_info->fps, sizeof(raw_fps));
-    raw_fps = htobe64(raw_fps);
+    raw_fps = be64toh(raw_fps);
     memmove(&new_fps, &raw_fps, sizeof(new_fps));
-    vidtxt_info->audio_size = htobe64(vidtxt_info->audio_size);
+    vidtxt_info->audio_size = be64toh(vidtxt_info->audio_size);
 
     if (new_fps >= 0 && 1/new_fps != INFINITY) {
         vidtxt_info->fps = new_fps;
@@ -181,7 +214,7 @@ VIDTXTInfo *new_vidtxt_info(FILE *fp, char *filename) {
 }
 
 VIDTXTInfo *open_vidtxt(char *filename) {
-    FILE *fp = fopen(filename, "r");
+    FILE *fp = fopen(filename, "rb");
 
     if (fp == NULL) {
         fprintf(stderr, "Couldn't open %s: %s\n", filename, strerror(errno));
@@ -569,8 +602,6 @@ ffmpeg_cleanup:
     
     double interval = 1 / vidtxt_info->fps;
 
-    struct winsize term_size;
-
     int32_t curses_fd = 1;
     char *curses_term = getenv("TERM");
     FILE *curses_stdin = stdin;
@@ -595,6 +626,8 @@ ffmpeg_cleanup:
         */
         curses_term = "linux";
     }
+
+    struct winsize term_size;
 
     if (ioctl(curses_fd, TIOCGWINSZ, &term_size) == -1) {
         status = -1;
@@ -741,9 +774,182 @@ int32_t vidtxt_info(char *filename, VIDTTYOptions *options) {
 
 int32_t dump_frames(char *filename, VIDTTYOptions *options) {
     (void)(filename);
-    (void)(options);
-    printf("Not implemented!\n");
-    return 2;
+    char *output_filename = DEFAULT_VIDTXT_FILENAME;
+    FILE *output_fp;
+    int32_t status = 0;
+    AVPacket *pkt = NULL;
+    AVFrame *decoded = NULL;
+    AVFrame *converted = NULL;
+    // SwrContext *swr_ctx = NULL;
+    // AVIOContext *out_avio_ctx = NULL;
+    // AVCodecContext *encoder_ctx = NULL;
+    AVCodecContext *decoder_ctx = NULL;
+    // AVFormatContext *out_fmt_ctx = NULL;
+    AVFormatContext *avfmt_ctx = NULL;
+    struct SwsContext *sws_ctx = NULL;
+    uint8_t *rgb_buffer = NULL;
+    struct winsize term_size;
+
+    if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
+        fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+        return 1;
+    }
+    
+    if (options->columns < 2) {
+        options->columns = term_size.ws_col;
+    }
+    if (options->lines < 2) {
+        options->lines = term_size.ws_row;
+    }
+    if (options->columns < 2 || options->lines < 2) {
+        printf("Invalid terminal resolution! Must be 2x2 or greater");
+        return 1;
+    }
+    printf("%ux%u\n", options->columns, options->lines);
+    printf("Writing to \x1b[1m%s\x1b[0m\n", output_filename);
+    output_fp = fopen(output_filename, "wb");
+
+    if (output_fp == NULL) {
+        fprintf(stderr, "Couldn't open %s: %s\n", output_filename, strerror(errno));
+        return 1;  
+    }
+
+    char signature[] = "VIDTXT\0";
+    fwrite(signature, sizeof(char), sizeof(signature), output_fp);
+    uint32_t be_columns = htobe32(options->columns);
+    uint32_t be_lines = htobe32(options->lines);
+    fwrite(&be_columns, sizeof(be_columns), 1, output_fp);
+    fwrite(&be_lines, sizeof(be_lines), 1, output_fp);
+
+    avfmt_ctx = avformat_alloc_context();
+    if ((status = avformat_open_input(&avfmt_ctx, filename, NULL, NULL)) < 0) {
+        fprintf(stderr, "Could not read video file: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+        goto cleanup;
+    }
+    if ((status = avformat_find_stream_info(avfmt_ctx, NULL)) < 0) {
+        fprintf(stderr, "Could not find stream information: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+        goto cleanup;
+    }
+
+    int32_t video_idx = av_find_best_stream(avfmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
+    if (video_idx < 0) {
+        status = video_idx;
+        fprintf(stderr, "Could not find video stream: FFmpeg error 0x%02x: %s\n", video_idx, av_err2str(video_idx));
+        goto cleanup;
+    }
+
+    AVStream *video_stream = avfmt_ctx->streams[video_idx];
+
+    AVRational r_frame_rate = video_stream->r_frame_rate;
+    if (r_frame_rate.num <= 0 || r_frame_rate.den <= 0) {
+        status = -1;
+        fprintf(stderr, "Error getting frame rate!\n");
+        goto cleanup;
+    }
+    double fps = av_q2d(r_frame_rate);
+    uint64_t raw_fps;
+    double be_fps;
+    memmove(&raw_fps, &fps, sizeof(raw_fps));
+    raw_fps = htobe64(raw_fps);
+    memmove(&be_fps, &raw_fps, sizeof(be_fps));
+    fwrite(&be_fps, sizeof(be_fps), 1, output_fp);
+
+    // todo: extract audio stream and add to file as mp3
+    uint64_t audio_size = 0;
+    uint64_t be_audio_size = htobe64(audio_size);
+    fwrite(&be_audio_size, sizeof(be_audio_size), 1, output_fp);;
+
+    for (int32_t idx = 0; idx < 32; idx++) {
+        if ((status = fputc('\0', output_fp)) < 0) {
+            fprintf(stderr, "Error writing null byte %d to header: fputc error %d: %s\n", idx, errno, strerror(errno));
+            goto cleanup;
+        }
+    }
+
+    const AVCodec *decoder = avcodec_find_decoder(video_stream->codecpar->codec_id);
+    decoder_ctx = avcodec_alloc_context3(decoder);
+    avcodec_parameters_to_context(decoder_ctx, video_stream->codecpar);
+    avcodec_open2(decoder_ctx, decoder, NULL);
+
+    sws_ctx = sws_getContext(
+        decoder_ctx->width, decoder_ctx->height, decoder_ctx->pix_fmt,
+        options->columns-1, options->lines-1, AV_PIX_FMT_RGB24,
+        SWS_BILINEAR, NULL, NULL, NULL);
+
+    if (!sws_ctx) {
+        fprintf(stderr, "Failed to create sws context!\n");
+        status = AVERROR(EINVAL);
+        goto cleanup;
+    }
+
+    pkt = av_packet_alloc();
+    decoded = av_frame_alloc();
+    converted = av_frame_alloc();
+
+    int buffer_size = av_image_get_buffer_size(AV_PIX_FMT_RGB24, options->columns-1, options->lines-1, 1);
+    rgb_buffer = av_malloc(buffer_size);
+    av_image_fill_arrays(converted->data, converted->linesize, rgb_buffer, AV_PIX_FMT_RGB24,
+                         options->columns-1, options->lines-1, 1);
+
+    static const char ascii_gradients[] = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+    const uint64_t ascii_size = sizeof(ascii_gradients) - 1;
+    uint64_t frame_count = 0;
+    printf("Writing frames...\r");
+    fflush(stdout);
+    int32_t loop_status = 0;
+    while (av_read_frame(avfmt_ctx, pkt) >= 0) {
+        if (pkt->stream_index == video_idx) {
+            if ((loop_status = avcodec_send_packet(decoder_ctx, pkt)) < 0) {
+                fprintf(stderr, "Failed to send packet: %s\n", av_err2str(status));
+                break;
+            }
+
+            while ((loop_status = avcodec_receive_frame(decoder_ctx, decoded)) >= 0) {
+                sws_scale(sws_ctx, (const uint8_t *const *)decoded->data, decoded->linesize,
+                          0, decoder_ctx->height, converted->data, converted->linesize);
+                char *ascii_fb = malloc(buffer_size / 3);
+                int32_t ascii_fb_size = 0;
+                for (int32_t idx = 0; idx+2 < buffer_size; idx+=3) {
+                    uint8_t gradient = 0.299 * rgb_buffer[idx] + 0.587 * rgb_buffer[idx+1] + 0.114 * rgb_buffer[idx+2];
+                    uint64_t gradient_idx = (gradient * (ascii_size - 1)) / 255;
+                    if (gradient_idx > ascii_size) {
+                        fprintf(stderr, "Fatal: index greater than gradient list. Aborting to prevent oob array access...");
+                        status = -1;
+                        goto cleanup;
+                    }
+                    if (ascii_fb_size >= buffer_size / 3) {
+                        fprintf(stderr, "Fatal: ascii_fb_size greater than what was calculated. Aborting to prevent oob array access...");
+                        status = -1;
+                        goto cleanup;
+                    }
+                    ascii_fb[ascii_fb_size] = ascii_gradients[gradient_idx];
+                    ascii_fb_size++;
+                }
+                fwrite(ascii_fb, sizeof(char), ascii_fb_size, output_fp);
+                free(ascii_fb);
+                frame_count++;
+                printf("Writing Frame: %lu/%ld\r", frame_count+1, video_stream->nb_frames);
+                fflush(stdout);
+            }
+        }
+        av_packet_unref(pkt);
+    }
+    printf("\n");
+
+    
+cleanup:
+    sws_freeContext(sws_ctx);
+    av_packet_free(&pkt);
+    av_frame_free(&decoded);    
+    av_frame_free(&converted);
+    avcodec_free_context(&decoder_ctx);
+    avformat_close_input(&avfmt_ctx);
+    av_free(rgb_buffer);
+    fclose(output_fp);
+    if (status < 0) {
+        return 1;
+    }
+    return 0;
 }
 
 int32_t print_help(char *filename, VIDTTYOptions *options){
@@ -948,12 +1154,7 @@ int32_t main(int32_t argc, char *argv[]) {
     if (argc < 2) {
         printf("Not enough arguments! Try %s --help for usage.\n", PROGRAM_NAME);
     }
-    VIDTTYOptions *options = malloc(sizeof(VIDTTYOptions));
-    options->debug_mode = 0;
-    options->no_audio = 0;
-    options->tty = 0;
-    options->lines = 0;
-    options->columns = 0;
+    VIDTTYOptions *options = calloc(1, sizeof(VIDTTYOptions));
     VIDTTYArguments *arguments = initialise_arguments(options);
     if (arguments == NULL) {
         return 1;

@@ -1,5 +1,5 @@
 SDL_VERSION=SDL3
-LDFLAGS=-lm -lcurses -l$(SDL_VERSION) -lavformat -lavutil -lavcodec -lswresample
+LDFLAGS=-lm -lcurses -l$(SDL_VERSION) -lavformat -lavutil -lavcodec -lswresample -lswscale
 DEBUG_FLAGS=-g -fsanitize=address -fsanitize=undefined
 TEST_FLAGS=-c -o /dev/null $(LDFLAGS) -O -Wall -Wextra
 
