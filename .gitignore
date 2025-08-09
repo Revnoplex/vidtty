@@ -140,6 +140,9 @@ mrbeast.sh
 # ignore generated vidtxt files
 *.vidtxt
 
+# ignore extra mp3 files
+*.mp3
+
 # Created by https://www.toptal.com/developers/gitignore/api/autotools,c
 # Edit at https://www.toptal.com/developers/gitignore?templates=autotools,c
 
