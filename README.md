@@ -37,7 +37,7 @@ Neither Program currently has been testet to work on Windows.
 ### Supported Files
 Most video file types should work as they are decoded with ffmpeg.
 
-The C version only currently supports playing .vidtxt files which you will have to generate using the python version with
+The C version only currently supports playing .vidtxt files and has limited .vidtxt file generation, so you will have to generate using the python version with
 ```sh
 $ ./vidtty.py -d example.mp4
 ```
