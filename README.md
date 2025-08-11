@@ -83,5 +83,5 @@ $ ./vidtty example.vidtxt
 ```
 
 ## VIDTXT File Format
-See [vidtxt.md](vidtxt.md) for more information
+See [vidtxt.md](vidtxt.md) for more information.
 
