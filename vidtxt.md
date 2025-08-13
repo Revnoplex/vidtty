@@ -9,7 +9,7 @@ instantly by the program. Pre-rendering a video is no longer needed that much an
 conversion process for this program has been improved drastically since the file format was created.
 
 ## File Structure
-The file is separated into 3 different parts
+The file is separated into 3 different parts:
 
 Note: refer to the file header information table for more info on `audio_size`
 
