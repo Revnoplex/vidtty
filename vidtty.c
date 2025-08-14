@@ -19,8 +19,14 @@
 #include <libavcodec/avcodec.h>
 #include <libswresample/swresample.h>
 #include <libavutil/version.h>
+#include <libavformat/version.h>
+#include <libavcodec/version.h>
 #include <libswscale/swscale.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/audio_fifo.h>
+#include <libavutil/opt.h>
+#include <libavutil/channel_layout.h>
+#include <libavutil/samplefmt.h>
 
 #if __has_include(<SDL3/SDL.h>)
 
@@ -400,7 +406,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
 
         int64_t next_pts = 0;
         uint64_t frame_count = 0;
-        printf("writing frames...\r");
+        printf("Writing Audio Frames...\r");
         fflush(stdout);
         while ((status = av_read_frame(avfmt_ctx, pkt)) >= 0) {
             if (pkt->stream_index != stream_idx) {
@@ -469,11 +475,11 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
             av_packet_unref(pkt);
             frame_count++;
             if (frame_count % 1024 == 0) {
-                printf("written %lu frames\r", frame_count);
+                printf("Written %lu Audio Frames\r", frame_count);
                 fflush(stdout);
             }
         }
-        printf("written %lu frames\n", frame_count);
+        printf("Written %lu Audio Frames\n", frame_count);
         fflush(stdout);
 
         if ((status = av_write_trailer(out_fmt_ctx)) < 0) {
@@ -777,18 +783,25 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
     char *output_filename = DEFAULT_VIDTXT_FILENAME;
     FILE *output_fp;
     int32_t status = 0;
-    AVPacket *pkt = NULL;
-    AVFrame *decoded = NULL;
-    AVFrame *converted = NULL;
-    // SwrContext *swr_ctx = NULL;
-    // AVIOContext *out_avio_ctx = NULL;
-    // AVCodecContext *encoder_ctx = NULL;
-    AVCodecContext *decoder_ctx = NULL;
-    // AVFormatContext *out_fmt_ctx = NULL;
+    AVPacket *video_pkt = NULL;
+    AVFrame *video_decoded = NULL;
+    AVFrame *video_converted = NULL;
+    AVCodecContext *vd_ctx = NULL;
     AVFormatContext *avfmt_ctx = NULL;
     struct SwsContext *sws_ctx = NULL;
     uint8_t *rgb_buffer = NULL;
     struct winsize term_size;
+
+    AVPacket *audio_pkt = NULL;
+    AVFrame *audio_decoded = NULL;
+    SwrContext *swr_ctx = NULL;
+    AVAudioFifo *fifo = NULL;
+    AVCodecContext *encoder_ctx = NULL;
+    AVCodecContext *ad_ctx = NULL;
+    AVFormatContext *out_fmt_ctx = NULL;
+    uint8_t *audio_buffer = NULL;
+    int64_t samples_pts = 0;
+    uint8_t **resampled_data = NULL;
 
     if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
         fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
@@ -805,7 +818,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
         printf("Invalid terminal resolution! Must be 2x2 or greater");
         return 1;
     }
-    printf("%ux%u\n", options->columns, options->lines);
+    printf("Setting output resolution to %ux%u\n", options->columns, options->lines);
     printf("Writing to \x1b[1m%s\x1b[0m\n", output_filename);
     output_fp = fopen(output_filename, "wb");
 
@@ -854,8 +867,514 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
     memmove(&be_fps, &raw_fps, sizeof(be_fps));
     fwrite(&be_fps, sizeof(be_fps), 1, output_fp);
 
-    // todo: extract audio stream and add to file as mp3
     uint64_t audio_size = 0;
+    int32_t audio_idx = 0;
+    if (!options->no_audio) {
+        if ((audio_idx = av_find_best_stream(avfmt_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0)) < 0) {
+            printf( "No audio stream found. Writing without audio...\n");
+            options->no_audio = 1;
+        }
+    }
+    if (!options->no_audio) {
+        AVStream *audio_stream = avfmt_ctx->streams[audio_idx];
+        #if LIBAVCODEC_VERSION_MAJOR >= 57
+            const AVCodec *decoder = avcodec_find_decoder(audio_stream->codecpar->codec_id);
+        #else
+            VCodec *decoder = avcodec_find_decoder(audio_stream->codecpar->codec_id);
+        #endif
+        
+        ad_ctx = avcodec_alloc_context3(decoder);
+        avcodec_parameters_to_context(ad_ctx, audio_stream->codecpar);
+        avcodec_open2(ad_ctx, decoder, NULL);
+
+        if ((status = avformat_alloc_output_context2(&out_fmt_ctx, NULL, "mp3", NULL)) < 0) {
+            fprintf(stderr, "Could not create output format context: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+
+#if LIBAVCODEC_VERSION_MAJOR >= 57
+        const AVCodec *encoder = avcodec_find_encoder(AV_CODEC_ID_MP3);
+#else 
+        AVCodec *encoder = avcodec_find_encoder(AV_CODEC_ID_MP3);
+#endif
+        AVStream *output_audio_stream = avformat_new_stream(out_fmt_ctx, encoder);
+        encoder_ctx = avcodec_alloc_context3(encoder);
+        
+       
+        // output_audio_stream->codecpar->sample_rate = encoder_ctx->sample_rate;
+        encoder_ctx->sample_rate = ad_ctx->sample_rate;
+#if LIBAVUTIL_VERSION_MAJOR >= 57
+        if (ad_ctx->ch_layout.nb_channels == 0) {
+            // If decoder didn't fill it, synthesize from channels
+            AVChannelLayout tmp;
+            av_channel_layout_default(&tmp, ad_ctx->ch_layout.nb_channels);
+            av_channel_layout_copy(&((AVCodecContext *)ad_ctx)->ch_layout, &tmp);
+        }
+        if ((status = av_channel_layout_copy(&encoder_ctx->ch_layout, &ad_ctx->ch_layout)) < 0) {
+            fprintf(stderr, "Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+#else 
+        encoder_ctx->channel_layout = ad_ctx->channel_layout ?
+                          ad_ctx->channel_layout :
+                          av_get_default_channel_layout(ad_ctx->channels);
+        encoder_ctx->channels = av_get_channel_layout_nb_channels(encoder_ctx->channel_layout);
+#endif
+        encoder_ctx->sample_fmt = AV_SAMPLE_FMT_FLTP;
+        encoder_ctx->bit_rate = 192000;
+        encoder_ctx->time_base = (AVRational){1, ad_ctx->sample_rate};
+
+        if ((status = avcodec_open2(encoder_ctx, encoder, NULL)) < 0) {
+            fprintf(stderr, "Could not open encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+        if ((status = avcodec_parameters_from_context(output_audio_stream->codecpar, encoder_ctx)) < 0) {
+            fprintf(stderr, "Could not transfer codec paramaters: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+        output_audio_stream->time_base = encoder_ctx->time_base;
+
+        if (!(out_fmt_ctx->oformat->flags & AVFMT_NOFILE)) {
+            if ((status = avio_open_dyn_buf(&out_fmt_ctx->pb)) < 0) {
+                fprintf(stderr, "Could not create output buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                goto cleanup;
+            }
+        }
+    
+        if ((status = avformat_write_header(out_fmt_ctx, NULL)) < 0) {
+            fprintf(stderr, "Could not write header: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+
+#if LIBAVUTIL_VERSION_MAJOR >= 57
+        if (ad_ctx->ch_layout.nb_channels == 0) {
+            AVChannelLayout tmp; av_channel_layout_default(&tmp, ad_ctx->ch_layout.nb_channels);
+            av_channel_layout_copy(&ad_ctx->ch_layout, &tmp);
+        }
+        status = swr_alloc_set_opts2(
+            &swr_ctx,
+            &encoder_ctx->ch_layout, encoder_ctx->sample_fmt, encoder_ctx->sample_rate,
+            &ad_ctx->ch_layout, ad_ctx->sample_fmt, ad_ctx->sample_rate,
+            0, NULL
+        );
+#else
+        if (!ad_ctx->channel_layout) {
+            ad_ctx->channel_layout = av_get_default_channel_layout(ad_ctx->channels);
+        }
+        swr_ctx = swr_alloc_set_opts(
+            NULL,
+            encoder_ctx->channel_layout, encoder_ctx->sample_fmt, encoder_ctx->sample_rate,
+            ad_ctx->channel_layout, ad_ctx->sample_fmt, ad_ctx->sample_rate,
+            0, NULL
+        );
+        status = (swr_ctx == NULL) ? AVERROR(ENOMEM) : 0;
+#endif
+        if (status < 0) {
+            fprintf(stderr, "Failed to allocate SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+        if ((status = swr_init(swr_ctx)) < 0) {
+            fprintf(stderr, "Failed to initialize SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+
+#if LIBAVUTIL_VERSION_MAJOR >= 57
+        fifo = av_audio_fifo_alloc(encoder_ctx->sample_fmt, encoder_ctx->ch_layout.nb_channels, 1024);
+#else
+        fifo = av_audio_fifo_alloc(encoder_ctx->sample_fmt, encoder_ctx->channels, 1024);
+#endif
+
+        audio_pkt = av_packet_alloc();
+        audio_decoded = av_frame_alloc();
+
+        int resampled_linesize = 0;
+        int max_dst_nb_samples = 0;
+
+        // Frame size we will enforce (1152 for MP3 at most rates; the encoder tells us)
+        int enc_frame_size = encoder_ctx->frame_size;
+        if (enc_frame_size <= 0) enc_frame_size = 1152; // conservative fallback
+
+        // --- Demux/Decode/Resample/Buffer ---
+        uint64_t frame_count = 0;
+        printf("Writing Audio Frames...\r");
+        fflush(stdout);
+        while ((status = av_read_frame(avfmt_ctx, audio_pkt)) >= 0) {
+            if (audio_pkt->stream_index != audio_idx) { av_packet_unref(audio_pkt); continue; }
+
+            if ((status = avcodec_send_packet(ad_ctx, audio_pkt)) < 0) {
+                av_packet_unref(audio_pkt);
+                fprintf(stderr, "Error sending packet to decoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                goto cleanup;
+            }
+            av_packet_unref(audio_pkt);
+
+            while ((status = avcodec_receive_frame(ad_ctx, audio_decoded)) >= 0) {
+                int64_t delay = swr_get_delay(swr_ctx, ad_ctx->sample_rate);
+                int dst_nb_samples = (int)av_rescale_rnd(delay + audio_decoded->nb_samples,
+                                                        encoder_ctx->sample_rate,
+                                                        ad_ctx->sample_rate,
+                                                        AV_ROUND_UP);
+                if (dst_nb_samples <= 0) dst_nb_samples = enc_frame_size;
+
+                if (dst_nb_samples > max_dst_nb_samples) {
+                    if (resampled_data) { av_freep(&resampled_data[0]); av_freep(&resampled_data); }
+                    if ((
+                            status = av_samples_alloc_array_and_samples(&resampled_data, &resampled_linesize,
+#if LIBAVUTIL_VERSION_MAJOR >= 57
+                            encoder_ctx->ch_layout.nb_channels
+#else
+                            encoder_ctx->channels
+#endif
+                            ,
+                            dst_nb_samples, encoder_ctx->sample_fmt, 0)) < 0
+                    ) {
+                        fprintf(stderr, "Error allocating array and samples: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        goto cleanup;
+                    }
+                    max_dst_nb_samples = dst_nb_samples;
+                }
+
+                int converted = swr_convert(swr_ctx,
+                                            resampled_data, dst_nb_samples,
+                                            (const uint8_t **)audio_decoded->data, audio_decoded->nb_samples);
+                if (converted < 0) {
+                    status = converted;
+                    fprintf(stderr, "Error during resampling: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    goto cleanup;
+                }
+                if ((status = av_audio_fifo_write(fifo, (void **)resampled_data, converted)) < 0) {
+                    fprintf(stderr, "Error writing to audio fifo: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    goto cleanup;
+                }
+
+                // While we have enough for a full encoder frame, encode it
+                while (av_audio_fifo_size(fifo) >= enc_frame_size) {
+                    AVFrame *audio_converted = av_frame_alloc();
+                    if (!audio_converted) { 
+                        status = AVERROR(ENOMEM); 
+                        fprintf(stderr, "Error allocating conversion frames: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        goto cleanup; 
+                    }
+                    audio_converted->nb_samples  = enc_frame_size;
+                    audio_converted->format      = encoder_ctx->sample_fmt;
+                    audio_converted->sample_rate = encoder_ctx->sample_rate;
+#if LIBAVUTIL_VERSION_MAJOR >= 57
+                    audio_converted->ch_layout = encoder_ctx->ch_layout;
+#else
+                    audio_converted->channel_layout = encoder_ctx->channel_layout;
+                    audio_converted->channels = encoder_ctx->channels;
+#endif
+                    if ((status = av_frame_get_buffer(audio_converted, 0)) < 0) {
+                        fprintf(stderr, "Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        av_frame_free(&audio_converted);
+                        goto cleanup;
+                    }
+
+                    if ((status = av_audio_fifo_read(fifo, (void **)audio_converted->data, enc_frame_size)) < 0) { 
+                        fprintf(stderr, "Error reading from audio fifo: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        av_frame_free(&audio_converted); 
+                        goto cleanup; 
+                    }
+
+                    // PTS in samples (time_base = 1/sample_rate)
+                    audio_converted->pts = samples_pts;
+                    samples_pts += enc_frame_size;
+                    if ((status = avcodec_send_frame(encoder_ctx, audio_converted)) < 0) {
+                        fprintf(stderr, "Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        av_frame_free(&audio_converted);
+                        goto cleanup;
+                    }
+                    av_frame_free(&audio_converted);
+
+                    AVPacket *opkt = av_packet_alloc();
+                    if (!opkt) { 
+                        status = AVERROR(ENOMEM); 
+                        fprintf(stderr, "Error allocating pkt: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        goto cleanup; 
+                    }
+                    while ((status = avcodec_receive_packet(encoder_ctx, opkt)) >= 0) {
+                        opkt->stream_index = output_audio_stream->index;
+                        av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
+                        if ((status = av_interleaved_write_frame(out_fmt_ctx, opkt)) < 0) {
+                            fprintf(stderr, "Error writing frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                            av_packet_free(&opkt);
+                            goto cleanup;
+                        }
+                        av_packet_unref(opkt);
+                    }
+                    // AVERROR(EAGAIN) or AVERROR_EOF is fine here
+                    av_packet_free(&opkt);
+                    if (status == AVERROR(EAGAIN) || status == AVERROR_EOF) status = 0;
+                }
+                av_frame_unref(audio_decoded);
+            }
+            if (status == AVERROR(EAGAIN) || status == AVERROR_EOF) {status = 0;}
+            frame_count++;
+            if (frame_count % 1024 == 0) {
+                printf("Writing Audio Frame: %lu/%ld\r", frame_count, audio_stream->nb_frames);
+                fflush(stdout);
+            }
+        }
+        if (status == AVERROR_EOF) {status = 0;}
+        if (status < 0) {
+            fprintf(stderr, "Error converting frames: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+
+        // Flush decoder
+        if ((status = avcodec_send_packet(ad_ctx, NULL)) < 0) {
+            fprintf(stderr, "Warning: Error sending packet to decoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+        while ((status = avcodec_receive_frame(ad_ctx, audio_decoded)) >= 0) {
+            int64_t delay = swr_get_delay(swr_ctx, ad_ctx->sample_rate);
+            int dst_nb_samples = (int)av_rescale_rnd(delay + audio_decoded->nb_samples,
+                                                    encoder_ctx->sample_rate,
+                                                    ad_ctx->sample_rate, AV_ROUND_UP);
+            if (dst_nb_samples <= 0) dst_nb_samples = enc_frame_size;
+
+            if (dst_nb_samples > max_dst_nb_samples) {
+                if (resampled_data) { av_freep(&resampled_data[0]); av_freep(&resampled_data); }
+                if ((
+                        status = av_samples_alloc_array_and_samples(&resampled_data, &resampled_linesize,
+#if LIBAVUTIL_VERSION_MAJOR >= 57
+                        encoder_ctx->ch_layout.nb_channels
+#else
+                        encoder_ctx->channels
+#endif
+                        ,
+                        dst_nb_samples, encoder_ctx->sample_fmt, 0)) < 0
+                    ) {
+                    fprintf(stderr, "Error allocating array and samples: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    goto cleanup;
+
+                }
+                max_dst_nb_samples = dst_nb_samples;
+            }
+
+            int converted = swr_convert(swr_ctx, resampled_data, dst_nb_samples,
+                                        (const uint8_t **)audio_decoded->data, audio_decoded->nb_samples);
+            if (converted < 0) { status = converted; goto cleanup; }
+            if ((status = av_audio_fifo_write(fifo, (void **)resampled_data, converted)) < 0) {
+                fprintf(stderr, "Error writing to audio fifo: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                goto cleanup;
+            }
+            av_frame_unref(audio_decoded);
+
+            // Encode any complete frames now available
+            while (av_audio_fifo_size(fifo) >= enc_frame_size) {
+                AVFrame *audio_converted = av_frame_alloc();
+                if (!audio_converted) { status = AVERROR(ENOMEM); goto cleanup; }
+                audio_converted->nb_samples = enc_frame_size;
+                audio_converted->format = encoder_ctx->sample_fmt;
+                audio_converted->sample_rate = encoder_ctx->sample_rate;
+#if LIBAVUTIL_VERSION_MAJOR >= 57
+                audio_converted->ch_layout = encoder_ctx->ch_layout;
+#else
+                audio_converted->channel_layout = encoder_ctx->channel_layout;
+                audio_converted->channels = encoder_ctx->channels;
+#endif
+                if ((status = av_frame_get_buffer(audio_converted, 0)) < 0) {
+                    fprintf(stderr, "Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    goto cleanup;
+                }
+                if ((status = av_audio_fifo_read(fifo, (void **)audio_converted->data, enc_frame_size)) < 0) { av_frame_free(&audio_converted); goto cleanup; }
+                audio_converted->pts = samples_pts; samples_pts += enc_frame_size;
+                if ((status = avcodec_send_frame(encoder_ctx, audio_converted)) < 0) {
+                    fprintf(stderr, "Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    av_frame_free(&audio_converted);
+                    goto cleanup;
+                }
+                av_frame_free(&audio_converted);
+
+                AVPacket *opkt = av_packet_alloc();
+                if (!opkt) { status = AVERROR(ENOMEM); goto cleanup; }
+                while ((status = avcodec_receive_packet(encoder_ctx, opkt)) >= 0) {
+                    opkt->stream_index = output_audio_stream->index;
+                    av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
+                    if ((status = av_interleaved_write_frame(out_fmt_ctx, opkt)) < 0) {
+                        fprintf(stderr, "Error writing frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        av_packet_free(&opkt);
+                        goto cleanup;
+                    }
+                    av_packet_unref(opkt);
+                }
+                av_packet_free(&opkt);
+                if (status == AVERROR(EAGAIN) || status == AVERROR_EOF) status = 0;
+            }
+        }
+        if (status == AVERROR_EOF || status == AVERROR(EAGAIN)) status = 0;
+
+        // Flush the resampler (pull remaining delayed samples)
+        for (;;) {
+            int dst_nb_samples = enc_frame_size;
+            if (dst_nb_samples > max_dst_nb_samples) {
+                if (resampled_data) { av_freep(&resampled_data[0]); av_freep(&resampled_data); }
+                if ((status = av_samples_alloc_array_and_samples(&resampled_data, &resampled_linesize,
+#if LIBAVUTIL_VERSION_MAJOR >= 57
+                        encoder_ctx->ch_layout.nb_channels
+#else
+                        encoder_ctx->channels
+#endif
+                        ,
+                        dst_nb_samples, encoder_ctx->sample_fmt, 0)) < 0) goto cleanup;
+                max_dst_nb_samples = dst_nb_samples;
+            }
+            int converted = swr_convert(swr_ctx, resampled_data, dst_nb_samples, NULL, 0);
+            if (converted <= 0) break; // 0 means drained
+            if ((status = av_audio_fifo_write(fifo, (void **)resampled_data, converted)) < 0) goto cleanup;
+
+            while (av_audio_fifo_size(fifo) >= enc_frame_size) {
+                AVFrame *audio_converted = av_frame_alloc();
+                if (!audio_converted) { status = AVERROR(ENOMEM); goto cleanup; }
+                audio_converted->nb_samples = enc_frame_size;
+                audio_converted->format = encoder_ctx->sample_fmt;
+                audio_converted->sample_rate = encoder_ctx->sample_rate;
+#if LIBAVUTIL_VERSION_MAJOR >= 57
+                audio_converted->ch_layout = encoder_ctx->ch_layout;
+#else
+                audio_converted->channel_layout = encoder_ctx->channel_layout;
+                audio_converted->channels = encoder_ctx->channels;
+#endif
+                if ((status = av_frame_get_buffer(audio_converted, 0)) < 0) {
+                    fprintf(stderr, "Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    goto cleanup;
+                }
+                if ((status = av_audio_fifo_read(fifo, (void **)audio_converted->data, enc_frame_size)) < 0) { av_frame_free(&audio_converted); goto cleanup; }
+                audio_converted->pts = samples_pts; samples_pts += enc_frame_size;
+                if ((status = avcodec_send_frame(encoder_ctx, audio_converted)) < 0) {
+                    fprintf(stderr, "Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    av_frame_free(&audio_converted);
+                    goto cleanup;
+                }
+                av_frame_free(&audio_converted);
+
+                AVPacket *opkt = av_packet_alloc();
+                if (!opkt) { status = AVERROR(ENOMEM); goto cleanup; }
+                while ((status = avcodec_receive_packet(encoder_ctx, opkt)) >= 0) {
+                    opkt->stream_index = output_audio_stream->index;
+                    av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
+                    if ((status = av_interleaved_write_frame(out_fmt_ctx, opkt)) < 0) {
+                        fprintf(stderr, "Error writing frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        av_packet_free(&opkt);
+                        goto cleanup;
+                    }
+                    av_packet_unref(opkt);
+                }
+                av_packet_free(&opkt);
+                if (status == AVERROR(EAGAIN) || status == AVERROR_EOF) status = 0;
+            }
+        }
+
+        // Drain FIFO: if leftover < frame_size, pad with silence so the final frame is full-size
+        {
+            int leftover = av_audio_fifo_size(fifo);
+            if (leftover > 0) {
+                if (leftover < enc_frame_size) {
+                    int to_pad = enc_frame_size - leftover;
+                    uint8_t **silence = NULL;
+                    int linesize = 0;
+                    status = av_samples_alloc_array_and_samples(
+                        &silence, &linesize,
+#if LIBAVUTIL_VERSION_MAJOR >= 57
+                        encoder_ctx->ch_layout.nb_channels
+#else
+                        encoder_ctx->channels
+#endif
+                        , 
+                        to_pad, encoder_ctx->sample_fmt, 0
+                    );
+                    if (status < 0) goto cleanup;
+                    av_samples_set_silence(
+                        silence, 0, to_pad, 
+#if LIBAVUTIL_VERSION_MAJOR >= 57
+                        encoder_ctx->ch_layout.nb_channels
+#else
+                        encoder_ctx->channels
+#endif
+                        , 
+                        encoder_ctx->sample_fmt
+                    );
+                    status = av_audio_fifo_write(fifo, (void **)silence, to_pad);
+                    av_freep(&silence[0]);
+                    av_freep(&silence);
+                    if (status < 0) goto cleanup;
+                }
+                // Now exactly one (or more) full-size frames remain
+                while (av_audio_fifo_size(fifo) >= enc_frame_size) {
+                    AVFrame *audio_converted = av_frame_alloc();
+                    if (!audio_converted) { status = AVERROR(ENOMEM); goto cleanup; }
+                    audio_converted->nb_samples = enc_frame_size;
+                    audio_converted->format = encoder_ctx->sample_fmt;
+                    audio_converted->sample_rate = encoder_ctx->sample_rate;
+#if LIBAVUTIL_VERSION_MAJOR >= 57
+                    audio_converted->ch_layout = encoder_ctx->ch_layout;
+#else
+                    audio_converted->channel_layout = encoder_ctx->channel_layout;
+                    audio_converted->channels = encoder_ctx->channels;
+#endif
+                    if ((status = av_frame_get_buffer(audio_converted, 0)) < 0) {
+                        fprintf(stderr, "Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        goto cleanup;
+                    }
+                    if ((status = av_audio_fifo_read(fifo, (void **)audio_converted->data, enc_frame_size)) < 0) { av_frame_free(&audio_converted); goto cleanup; }
+                    audio_converted->pts = samples_pts; samples_pts += enc_frame_size;
+                    if ((status = avcodec_send_frame(encoder_ctx, audio_converted)) < 0) {
+                        fprintf(stderr, "Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        av_frame_free(&audio_converted);
+                        goto cleanup;
+                    }
+                    av_frame_free(&audio_converted);
+
+                    AVPacket *opkt = av_packet_alloc();
+                    if (!opkt) { status = AVERROR(ENOMEM); goto cleanup; }
+                    while ((status = avcodec_receive_packet(encoder_ctx, opkt)) >= 0) {
+                        opkt->stream_index = output_audio_stream->index;
+                        av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
+                        if ((status = av_interleaved_write_frame(out_fmt_ctx, opkt)) < 0) {
+                            fprintf(stderr, "Error writing frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                            av_packet_free(&opkt);
+                            goto cleanup;
+                        }
+                        av_packet_unref(opkt);
+                    }
+                    av_packet_free(&opkt);
+                    if (status == AVERROR(EAGAIN) || status == AVERROR_EOF) status = 0;
+                }
+            }
+        }
+
+        // Flush encoder
+        if ((status = avcodec_send_frame(encoder_ctx, NULL)) < 0) {
+                        fprintf(stderr, "Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+        {
+            AVPacket *opkt = av_packet_alloc();
+            if (!opkt) { status = AVERROR(ENOMEM); goto cleanup; }
+            while ((status = avcodec_receive_packet(encoder_ctx, opkt)) >= 0) {
+                opkt->stream_index = output_audio_stream->index;
+                av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
+                if ((status = av_interleaved_write_frame(out_fmt_ctx, opkt)) < 0) {
+                    fprintf(stderr, "Error writing frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    av_packet_free(&opkt);
+                    goto cleanup;
+                }
+                av_packet_unref(opkt);
+            }
+            av_packet_free(&opkt);
+            if (status == AVERROR(EAGAIN) || status == AVERROR_EOF) status = 0;
+        }
+        printf("Writing Audio Frame: %lu/%ld\n", frame_count, audio_stream->nb_frames);
+
+        if ((status = av_write_trailer(out_fmt_ctx)) < 0) {
+            fprintf(stderr, "Error writing trailer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+
+        audio_size = avio_close_dyn_buf(out_fmt_ctx->pb, &audio_buffer);
+    }
+    
     uint64_t be_audio_size = htobe64(audio_size);
     fwrite(&be_audio_size, sizeof(be_audio_size), 1, output_fp);;
 
@@ -866,13 +1385,17 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
         }
     }
 
+    if (!options->no_audio) {
+        fwrite(audio_buffer, sizeof(uint8_t), audio_size, output_fp);
+    }
+
     const AVCodec *decoder = avcodec_find_decoder(video_stream->codecpar->codec_id);
-    decoder_ctx = avcodec_alloc_context3(decoder);
-    avcodec_parameters_to_context(decoder_ctx, video_stream->codecpar);
-    avcodec_open2(decoder_ctx, decoder, NULL);
+    vd_ctx = avcodec_alloc_context3(decoder);
+    avcodec_parameters_to_context(vd_ctx, video_stream->codecpar);
+    avcodec_open2(vd_ctx, decoder, NULL);
 
     sws_ctx = sws_getContext(
-        decoder_ctx->width, decoder_ctx->height, decoder_ctx->pix_fmt,
+        vd_ctx->width, vd_ctx->height, vd_ctx->pix_fmt,
         options->columns-1, options->lines-1, AV_PIX_FMT_RGB24,
         SWS_BILINEAR, NULL, NULL, NULL);
 
@@ -882,31 +1405,32 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
         goto cleanup;
     }
 
-    pkt = av_packet_alloc();
-    decoded = av_frame_alloc();
-    converted = av_frame_alloc();
+    video_pkt = av_packet_alloc();
+    video_decoded = av_frame_alloc();
+    video_converted = av_frame_alloc();
 
     int buffer_size = av_image_get_buffer_size(AV_PIX_FMT_RGB24, options->columns-1, options->lines-1, 1);
     rgb_buffer = av_malloc(buffer_size);
-    av_image_fill_arrays(converted->data, converted->linesize, rgb_buffer, AV_PIX_FMT_RGB24,
+    av_image_fill_arrays(video_converted->data, video_converted->linesize, rgb_buffer, AV_PIX_FMT_RGB24,
                          options->columns-1, options->lines-1, 1);
 
     static const char ascii_gradients[] = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
     const uint64_t ascii_size = sizeof(ascii_gradients) - 1;
     uint64_t frame_count = 0;
-    printf("Writing frames...\r");
+    printf("Writing Frames...\r");
     fflush(stdout);
     int32_t loop_status = 0;
-    while (av_read_frame(avfmt_ctx, pkt) >= 0) {
-        if (pkt->stream_index == video_idx) {
-            if ((loop_status = avcodec_send_packet(decoder_ctx, pkt)) < 0) {
+    av_seek_frame(avfmt_ctx, -1, 0, AVSEEK_FLAG_BACKWARD);
+    while (av_read_frame(avfmt_ctx, video_pkt) >= 0) {
+        if (video_pkt->stream_index == video_idx) {
+            if ((loop_status = avcodec_send_packet(vd_ctx, video_pkt)) < 0) {
                 fprintf(stderr, "Failed to send packet: %s\n", av_err2str(status));
                 break;
             }
 
-            while ((loop_status = avcodec_receive_frame(decoder_ctx, decoded)) >= 0) {
-                sws_scale(sws_ctx, (const uint8_t *const *)decoded->data, decoded->linesize,
-                          0, decoder_ctx->height, converted->data, converted->linesize);
+            while ((loop_status = avcodec_receive_frame(vd_ctx, video_decoded)) >= 0) {
+                sws_scale(sws_ctx, (const uint8_t *const *)video_decoded->data, video_decoded->linesize,
+                          0, vd_ctx->height, video_converted->data, video_converted->linesize);
                 char *ascii_fb = malloc(buffer_size / 3);
                 int32_t ascii_fb_size = 0;
                 for (int32_t idx = 0; idx+2 < buffer_size; idx+=3) {
@@ -932,19 +1456,34 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 fflush(stdout);
             }
         }
-        av_packet_unref(pkt);
+        av_packet_unref(video_pkt);
     }
     printf("\n");
 
     
 cleanup:
     sws_freeContext(sws_ctx);
-    av_packet_free(&pkt);
-    av_frame_free(&decoded);    
-    av_frame_free(&converted);
-    avcodec_free_context(&decoder_ctx);
+    av_packet_free(&audio_pkt);
+    av_packet_free(&video_pkt);
+    av_frame_free(&audio_decoded);  
+    av_frame_free(&video_decoded);   
+    if (status < 0) {
+        audio_size = avio_close_dyn_buf(out_fmt_ctx->pb, &audio_buffer);
+    }
+    avcodec_free_context(&encoder_ctx);
+    avformat_free_context(out_fmt_ctx);
+    av_frame_free(&video_converted);
+    if (resampled_data) { 
+        av_freep(&resampled_data[0]); 
+        av_freep(&resampled_data); 
+    }
+    av_audio_fifo_free(fifo);
+    swr_free(&swr_ctx);
+    avcodec_free_context(&ad_ctx);
+    avcodec_free_context(&vd_ctx);
     avformat_close_input(&avfmt_ctx);
     av_free(rgb_buffer);
+    av_free(audio_buffer);
     fclose(output_fp);
     if (status < 0) {
         return 1;
