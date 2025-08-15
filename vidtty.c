@@ -55,7 +55,7 @@
 #define AUTHOR "Revnoplex"
 #define VIDTXT_HEADER_SIZE 64
 #define VID_METADATA_START 8
-#define DEFAULT_VIDTXT_FILENAME "output.vidtxt"
+#define VIDTXT_EXT ".vidtxt"
 
 typedef struct _VIDTTYOptions VIDTTYOptions;
 typedef struct _VIDTTYArguments VIDTTYArguments;
@@ -255,6 +255,65 @@ int32_t int_str_asprintf(char **restrict ptr, const char *restrict fmt, int32_t 
     snprintf(*ptr, calculated_size, fmt, d, s);
 
     return calculated_size;
+}
+
+int32_t includes_match(char *string, char *match) {
+    int32_t sizeof_match;
+    int32_t matches = 0;
+    for (sizeof_match = 0; match[sizeof_match] != '\0'; sizeof_match++);
+    for (int32_t idx = 0; string[idx] != '\0'; idx++) {
+        if (idx+1 >= sizeof_match) {
+            for (int32_t sub_idx = 0; sub_idx < sizeof_match; sub_idx++) {
+                if (string[idx-sizeof_match+1+sub_idx] != match[sub_idx]) {
+                    break;
+                }
+                if (sub_idx+1 == sizeof_match) {
+                    matches = 1;
+                }
+            }
+        }
+    }
+    return matches;
+}
+
+char *extract_filename_from_url(char *url, int32_t include_ext, char *add_str, uint32_t add_strc) {
+    uint32_t add_strc_check = add_strc;
+    if (add_str != NULL && add_strc == 0) {
+        for (;add_str[add_strc] != '\0'; add_strc++);
+    }
+    if (!add_strc_check) {
+        add_strc++;
+    }
+    int32_t sizeof_url;
+    for(sizeof_url = 0; url[sizeof_url] != '\0'; sizeof_url++);
+    char *output_buffer = malloc(sizeof_url+add_strc);
+    int32_t buffer_idx = 0;
+    int32_t stop_adding = 0;
+    for (int32_t idx = 0; url[idx] != '\0'; idx++) {
+        if (url[idx] == '?') {
+            break;
+        }
+        if (!include_ext && url[idx]== '.') {
+            stop_adding = 1;
+        }
+        if (!stop_adding) {
+            output_buffer[buffer_idx] = url[idx];
+        }
+        if (url[idx] == '/') {
+            stop_adding = 0;
+            buffer_idx = 0;
+        } else if (!stop_adding){
+            buffer_idx++;
+        }
+    }
+    if (add_str == NULL) {
+        output_buffer[buffer_idx] = '\0';
+    } else {
+        for (uint32_t idx = 0; idx < add_strc; idx++) {
+            output_buffer[buffer_idx+idx] = add_str[idx];
+        }
+    }
+    return output_buffer;
 }
 
 int32_t avio_custom_read(void *opaque, uint8_t *buffer, int buffer_size) {
@@ -784,6 +843,7 @@ int32_t vidtxt_info(char *filename, VIDTTYOptions *options) {
     if (vidtxt_info == NULL) {
         return 1;
     }
+
     printf(
         "\x1b[1mVIDTXT Video Information for %s:\x1b[0m\n"
         "Dimensions (columns x lines): %ux%u characters\n"
@@ -801,8 +861,21 @@ int32_t vidtxt_info(char *filename, VIDTTYOptions *options) {
 }
 
 int32_t dump_frames(char *filename, VIDTTYOptions *options) {
-    (void)(filename);
-    char *output_filename = DEFAULT_VIDTXT_FILENAME;
+    char *output_filename;
+    if (includes_match(filename, "://")) {
+        output_filename = extract_filename_from_url(filename, 0, VIDTXT_EXT, sizeof(VIDTXT_EXT));
+    } else {
+        int32_t fname_size;
+        for (fname_size = 0; filename[fname_size] != '\0'; fname_size++);
+        output_filename = malloc(fname_size+sizeof(VIDTXT_EXT));
+        int32_t prefix_size;
+        for (prefix_size = 0; filename[prefix_size] != '.'; prefix_size++) {
+            output_filename[prefix_size] = filename[prefix_size];
+        }
+        for (uint64_t idx = 0; idx < sizeof(VIDTXT_EXT); idx++) {
+            output_filename[prefix_size+idx] = VIDTXT_EXT[idx];
+        }
+    }
     FILE *output_fp;
     int32_t status = 0;
     AVPacket *video_pkt = NULL;
@@ -1507,6 +1580,7 @@ cleanup:
     av_free(rgb_buffer);
     av_free(audio_buffer);
     fclose(output_fp);
+    free(output_filename);
     if (status < 0) {
         return 1;
     }
