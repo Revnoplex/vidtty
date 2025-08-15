@@ -234,6 +234,29 @@ VIDTXTInfo *open_vidtxt(char *filename) {
     return vidtxt_info;
 }
 
+int32_t int_str_asprintf(char **restrict ptr, const char *restrict fmt, int32_t d, char *s) {
+    // format string must contain exactly one 32-bit integer followed by exactly char ptr 
+    // array or undefined behavior will occur
+    int32_t calculated_size = 0;
+    int32_t fmt_size;
+    int32_t str_size;
+
+    for (fmt_size = 0; fmt[fmt_size] != '\0'; fmt_size++);
+    calculated_size+= fmt_size;
+
+    // note: null character space gets included here.
+    calculated_size += snprintf(NULL, 0, "%d", d);
+
+    for(str_size = 0; s[str_size] != '\0'; str_size++);
+    calculated_size+= str_size;
+
+    *ptr = malloc(calculated_size);
+
+    snprintf(*ptr, calculated_size, fmt, d, s);
+
+    return calculated_size;
+}
+
 int32_t avio_custom_read(void *opaque, uint8_t *buffer, int buffer_size) {
     // cast opaque to file pointer struct
     VIDTXTInfo *vidtxt_info = (VIDTXTInfo*)opaque;
@@ -666,7 +689,7 @@ ffmpeg_cleanup:
 
     if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
         status = -1;
-        asprintf(&queued_err_msg, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+        int_str_asprintf(&queued_err_msg, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
         goto main_cleanup;
     }
     pre_draw = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
@@ -708,12 +731,12 @@ ffmpeg_cleanup:
         }
         if (draw_errors >= DRAW_ERROR_TOLERANCE) {
             status = -1;
-            asprintf(&queued_err_msg, "Too many draw errors: errno %d: %s. Stopping...\n", errno, strerror(errno));
+            int_str_asprintf(&queued_err_msg, "Too many draw errors: errno %d: %s. Stopping...\n", errno, strerror(errno));
             goto main_cleanup;
         }
         if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
             status = -1;
-            asprintf(&queued_err_msg, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+            int_str_asprintf(&queued_err_msg, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
             goto main_cleanup;
         }
         uint64_t draw_time = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 - pre_draw;
@@ -761,7 +784,6 @@ int32_t vidtxt_info(char *filename, VIDTTYOptions *options) {
     if (vidtxt_info == NULL) {
         return 1;
     }
-
     printf(
         "\x1b[1mVIDTXT Video Information for %s:\x1b[0m\n"
         "Dimensions (columns x lines): %ux%u characters\n"
