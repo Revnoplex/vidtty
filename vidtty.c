@@ -236,7 +236,7 @@ VIDTXTInfo *open_vidtxt(char *filename) {
 
 int32_t int_str_asprintf(char **restrict ptr, const char *restrict fmt, int32_t d, char *s) {
     // format string must contain exactly one 32-bit integer followed by exactly char ptr 
-    // array or undefined behavior will occur
+    // array or undefined behavior may occur
     int32_t calculated_size = 0;
     int32_t fmt_size;
     int32_t str_size;
@@ -1489,7 +1489,7 @@ cleanup:
     av_packet_free(&video_pkt);
     av_frame_free(&audio_decoded);  
     av_frame_free(&video_decoded);   
-    if (status < 0) {
+    if (status < 0 && out_fmt_ctx) {
         audio_size = avio_close_dyn_buf(out_fmt_ctx->pb, &audio_buffer);
     }
     avcodec_free_context(&encoder_ctx);
