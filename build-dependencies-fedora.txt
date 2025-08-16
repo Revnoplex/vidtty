@@ -2,3 +2,4 @@ dh-autoreconf
 ncurses-devel
 SDL3-devel
 libavformat-free-devel
+libswscale-free-devel
