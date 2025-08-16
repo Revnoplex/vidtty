@@ -4,6 +4,6 @@ libncurses-dev
 libavformat-dev
 libswscale-dev
 # debian 13 and later
-libsdl3
+libsdl3-dev
 # otherwise
 libsdl2-dev
