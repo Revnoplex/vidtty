@@ -1,3 +1,4 @@
+![C](https://img.shields.io/badge/-C-ffffff?style=for-the-badge&logo=c)
 ![Python](https://img.shields.io/badge/-Python-14354C?style=for-the-badge&logo=python&logoColor=FFD43B)
 ![FFmpeg](https://img.shields.io/badge/-FFmpeg-4d853a?style=for-the-badge&logo=ffmpeg)
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/Revnoplex/vidtty?style=for-the-badge&logo=github)
