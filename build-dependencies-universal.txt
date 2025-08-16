@@ -13,3 +13,4 @@ libavformat
 libavutil
 libavcodec
 libswresample
+libswscale
