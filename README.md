@@ -29,6 +29,8 @@ This program has only been tested to work on some Linux and macOS environments l
 | Termux 0.118.3 (on Android 16) | AArch64 (arm64) |
 | Debian 12 (on Android 16)      | AArch64 (arm64) |
 | Fedora 42                      | amd64 (x86_64)  |
+| Debian 13                      | amd64 (x86_64)  |
+
 
 The python version of the program has been tested to work on python 3.8 and later.
 
