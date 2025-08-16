@@ -544,7 +544,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
                 while ((status = avcodec_receive_packet(encoder_ctx, pkt)) == 0) {
                     pkt->stream_index = output_audio_stream->index;
                     if ((status = av_interleaved_write_frame(out_fmt_ctx, pkt)) < 0) {
-                        fprintf(stderr, "Error writing frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        fprintf(stderr, "Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                         goto ffmpeg_cleanup;
                     }
                     av_packet_unref(pkt);
@@ -862,6 +862,32 @@ int32_t vidtxt_info(char *filename, VIDTTYOptions *options) {
 
 int32_t dump_frames(char *filename, VIDTTYOptions *options) {
     char *output_filename;
+    struct timespec draw_spec;
+    uint64_t pre_duration;
+    double numerator;
+    double denominator;
+    FILE *output_fp;
+    int32_t status = 0;
+    AVPacket *video_pkt = NULL;
+    AVFrame *video_decoded = NULL;
+    AVFrame *video_converted = NULL;
+    AVCodecContext *vd_ctx = NULL;
+    AVFormatContext *avfmt_ctx = NULL;
+    struct SwsContext *sws_ctx = NULL;
+    uint8_t *rgb_buffer = NULL;
+    struct winsize term_size;
+
+    AVPacket *audio_pkt = NULL;
+    AVFrame *audio_decoded = NULL;
+    SwrContext *swr_ctx = NULL;
+    AVAudioFifo *fifo = NULL;
+    AVCodecContext *encoder_ctx = NULL;
+    AVCodecContext *ad_ctx = NULL;
+    AVFormatContext *out_fmt_ctx = NULL;
+    uint8_t *audio_buffer = NULL;
+    int64_t samples_pts = 0;
+    uint8_t **resampled_data = NULL;
+    
     if (includes_match(filename, "://")) {
         output_filename = extract_filename_from_url(filename, 0, VIDTXT_EXT, sizeof(VIDTXT_EXT));
     } else {
@@ -905,27 +931,6 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             free(tmp_buffer);
         }
     }
-    FILE *output_fp;
-    int32_t status = 0;
-    AVPacket *video_pkt = NULL;
-    AVFrame *video_decoded = NULL;
-    AVFrame *video_converted = NULL;
-    AVCodecContext *vd_ctx = NULL;
-    AVFormatContext *avfmt_ctx = NULL;
-    struct SwsContext *sws_ctx = NULL;
-    uint8_t *rgb_buffer = NULL;
-    struct winsize term_size;
-
-    AVPacket *audio_pkt = NULL;
-    AVFrame *audio_decoded = NULL;
-    SwrContext *swr_ctx = NULL;
-    AVAudioFifo *fifo = NULL;
-    AVCodecContext *encoder_ctx = NULL;
-    AVCodecContext *ad_ctx = NULL;
-    AVFormatContext *out_fmt_ctx = NULL;
-    uint8_t *audio_buffer = NULL;
-    int64_t samples_pts = 0;
-    uint8_t **resampled_data = NULL;
 
     if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
         fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
@@ -1122,6 +1127,14 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
         if (enc_frame_size <= 0) enc_frame_size = 1152; // conservative fallback
 
         // --- Demux/Decode/Resample/Buffer ---
+        if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
+            status = -1;
+            fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+            goto cleanup;
+        }
+        pre_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
+        numerator = 0;
+        denominator = 1;
         uint64_t frame_count = 0;
         printf("Writing Audio Frames...\r");
         fflush(stdout);
@@ -1223,7 +1236,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                         opkt->stream_index = output_audio_stream->index;
                         av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
                         if ((status = av_interleaved_write_frame(out_fmt_ctx, opkt)) < 0) {
-                            fprintf(stderr, "Error writing frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                            fprintf(stderr, "Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                             av_packet_free(&opkt);
                             goto cleanup;
                         }
@@ -1237,10 +1250,26 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             }
             if (status == AVERROR(EAGAIN) || status == AVERROR_EOF) {status = 0;}
             frame_count++;
-            if (frame_count % 1024 == 0) {
-                printf("Writing Audio Frame: %lu/%ld\r", frame_count, audio_stream->nb_frames);
+            if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
+                status = -1;
+                fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+                goto cleanup;
+            }
+            uint64_t frame_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 - pre_duration;
+            pre_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
+            double rate = (double)1000000 / frame_duration;
+            numerator+=rate;
+            double time_left = (audio_stream->nb_frames-frame_count-1) / (numerator/denominator);
+            if (frame_count % 64 == 0) {
+                printf(
+                    "Writing Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%02.0lf [ %lu%% ]\r", 
+                    frame_count, audio_stream->nb_frames, numerator/denominator,
+                    (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60),
+                    100*(frame_count+1) / audio_stream->nb_frames
+                );
                 fflush(stdout);
             }
+            denominator++;
         }
         if (status == AVERROR_EOF) {status = 0;}
         if (status < 0) {
@@ -1320,7 +1349,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                     opkt->stream_index = output_audio_stream->index;
                     av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
                     if ((status = av_interleaved_write_frame(out_fmt_ctx, opkt)) < 0) {
-                        fprintf(stderr, "Error writing frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        fprintf(stderr, "Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                         av_packet_free(&opkt);
                         goto cleanup;
                     }
@@ -1382,7 +1411,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                     opkt->stream_index = output_audio_stream->index;
                     av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
                     if ((status = av_interleaved_write_frame(out_fmt_ctx, opkt)) < 0) {
-                        fprintf(stderr, "Error writing frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        fprintf(stderr, "Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                         av_packet_free(&opkt);
                         goto cleanup;
                     }
@@ -1459,7 +1488,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                         opkt->stream_index = output_audio_stream->index;
                         av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
                         if ((status = av_interleaved_write_frame(out_fmt_ctx, opkt)) < 0) {
-                            fprintf(stderr, "Error writing frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                            fprintf(stderr, "Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                             av_packet_free(&opkt);
                             goto cleanup;
                         }
@@ -1483,7 +1512,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 opkt->stream_index = output_audio_stream->index;
                 av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
                 if ((status = av_interleaved_write_frame(out_fmt_ctx, opkt)) < 0) {
-                    fprintf(stderr, "Error writing frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    fprintf(stderr, "Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     av_packet_free(&opkt);
                     goto cleanup;
                 }
@@ -1544,10 +1573,18 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
     static const char ascii_gradients[] = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
     const uint64_t ascii_size = sizeof(ascii_gradients) - 1;
     uint64_t frame_count = 0;
-    printf("Writing Frames...\r");
+    printf("Writing Video Frames...\r");
     fflush(stdout);
     int32_t loop_status = 0;
     av_seek_frame(avfmt_ctx, -1, 0, AVSEEK_FLAG_BACKWARD);
+    if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
+        status = -1;
+        fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+        goto cleanup;
+    }
+    pre_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
+    numerator = 0;
+    denominator = 1;
     while (av_read_frame(avfmt_ctx, video_pkt) >= 0) {
         if (video_pkt->stream_index == video_idx) {
             if ((loop_status = avcodec_send_packet(vd_ctx, video_pkt)) < 0) {
@@ -1579,7 +1616,23 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 fwrite(ascii_fb, sizeof(char), ascii_fb_size, output_fp);
                 free(ascii_fb);
                 frame_count++;
-                printf("Writing Frame: %lu/%ld\r", frame_count+1, video_stream->nb_frames);
+                if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
+                    status = -1;
+                    fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+                    goto cleanup;
+                }
+                uint64_t frame_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 - pre_duration;
+                pre_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
+                double rate = (double)1000000 / frame_duration;
+                numerator+=rate;
+                double time_left = (video_stream->nb_frames-frame_count-1) / (numerator/denominator);
+                printf(
+                    "Writing Video Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%02.0lf [ %lu%% ]\r", 
+                    frame_count+1, video_stream->nb_frames, numerator/denominator,
+                    (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60),
+                    100*(frame_count+1) / video_stream->nb_frames
+                );
+                denominator++;
                 fflush(stdout);
             }
         }
