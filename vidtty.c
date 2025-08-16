@@ -869,11 +869,40 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
         for (fname_size = 0; filename[fname_size] != '\0'; fname_size++);
         output_filename = malloc(fname_size+sizeof(VIDTXT_EXT));
         int32_t prefix_size;
-        for (prefix_size = 0; filename[prefix_size] != '.'; prefix_size++) {
+        for (prefix_size = 0; filename[prefix_size] != '.' && filename[prefix_size] != '\0'; prefix_size++) {
             output_filename[prefix_size] = filename[prefix_size];
         }
         for (uint64_t idx = 0; idx < sizeof(VIDTXT_EXT); idx++) {
             output_filename[prefix_size+idx] = VIDTXT_EXT[idx];
+        }
+    }
+    if (!access(output_filename, F_OK)) {
+        printf("A file called \x1b[1m%s\x1b[0m already exists\nOverwrite? [y/N]: ", output_filename);
+        char prompt[6];
+        char *input_successful = fgets(prompt, sizeof(prompt), stdin);
+        if (!(input_successful && prompt[0] != '\n' && (prompt[0] | 32) == 'y')) {
+            uint32_t duplicate_number = 1;
+            char *tmp_buffer = NULL;
+            uint32_t rep_size;
+            for (uint32_t idx = 0; output_filename[idx] != '\0'; idx++) {
+                if (output_filename[idx] == '.') {
+                    output_filename[idx] = '\0';
+                    break;
+                }
+            }
+            while (1) {
+                rep_size = snprintf(NULL, 0, "%s.%u%s", output_filename, duplicate_number, VIDTXT_EXT);
+                tmp_buffer = malloc(rep_size+1);
+                snprintf(tmp_buffer, rep_size+1, "%s.%u%s", output_filename, duplicate_number, VIDTXT_EXT);
+                if (access(tmp_buffer, F_OK)) {
+                    break;
+                }
+                free(tmp_buffer);
+                duplicate_number++;
+            }
+            output_filename = realloc(output_filename, rep_size+1);
+            snprintf(output_filename, rep_size+1, "%s", tmp_buffer);
+            free(tmp_buffer);
         }
     }
     FILE *output_fp;
@@ -900,6 +929,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
 
     if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
         fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+        free(output_filename);
         return 1;
     }
     
@@ -911,6 +941,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
     }
     if (options->columns < 2 || options->lines < 2) {
         printf("Invalid terminal resolution! Must be 2x2 or greater");
+        free(output_filename);
         return 1;
     }
     printf("Setting output resolution to %ux%u\n", options->columns, options->lines);
@@ -919,6 +950,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
 
     if (output_fp == NULL) {
         fprintf(stderr, "Couldn't open %s: %s\n", output_filename, strerror(errno));
+        free(output_filename);
         return 1;  
     }
 
