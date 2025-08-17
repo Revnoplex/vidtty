@@ -56,6 +56,7 @@
 #define VIDTXT_HEADER_SIZE 64
 #define VID_METADATA_START 8
 #define VIDTXT_EXT ".vidtxt"
+#define SUFFIX_MAX_SIZE sizeof("[ 100% ]")
 
 typedef struct _VIDTTYOptions VIDTTYOptions;
 typedef struct _VIDTTYArguments VIDTTYArguments;
@@ -1261,12 +1262,54 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             numerator+=rate;
             double time_left = (audio_stream->nb_frames-frame_count-1) / (numerator/denominator);
             if (frame_count % 64 == 0) {
-                printf(
-                    "Writing Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%02.0lf [ %lu%% ]\r", 
+                if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
+                    fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+                    free(output_filename);
+                    return 1;
+                }
+                char *bar_data = malloc(term_size.ws_col+1);
+                int32_t amount = snprintf(
+                    bar_data, term_size.ws_col+1,
+                    "Writing Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%02.0lf", 
                     frame_count, audio_stream->nb_frames, numerator/denominator,
-                    (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60),
-                    100*(frame_count+1) / audio_stream->nb_frames
+                    (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
                 );
+                for (int32_t idx = amount; idx < term_size.ws_col+1; idx++) {
+                    bar_data[idx] = ' ';
+                }
+                char *suffix = malloc(SUFFIX_MAX_SIZE);
+                int32_t suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count) / audio_stream->nb_frames);
+                for (int32_t idx = 0; idx < suffix_size; idx++) {
+                    bar_data[term_size.ws_col-suffix_size+idx] = suffix[idx];
+                }
+                free(suffix);
+                bar_data[term_size.ws_col] = '\0';
+                char *full_bar = malloc(term_size.ws_col+9);
+                full_bar[0] = '\x1b';
+                full_bar[1] = '[';
+                full_bar[2] = '7';
+                full_bar[3] = 'm';
+                char insert[] = "\x1b[0m";
+                int32_t insert_offset = term_size.ws_col*(frame_count) / audio_stream->nb_frames;
+                for (int32_t idx = 4; idx < term_size.ws_col+9; idx++) {
+                    if (idx >= insert_offset+4 && idx < insert_offset+4+4) {
+                        full_bar[idx] = insert[idx-insert_offset-4];
+                    } else {
+                        if (idx <= term_size.ws_col+8) {
+                            int32_t data_offset = 4;
+                            if (idx >= insert_offset+4) {
+                                data_offset = 8;
+                            }
+                            full_bar[idx] = bar_data[idx-data_offset];
+                        } else {
+                            full_bar[idx] = 'E';
+                        }
+                    }
+                }
+                free(bar_data);
+                full_bar[term_size.ws_col+9-1] = '\0';
+                printf("%s\r", full_bar);
+                free(full_bar);
                 fflush(stdout);
             }
             denominator++;
@@ -1521,7 +1564,30 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             av_packet_free(&opkt);
             if (status == AVERROR(EAGAIN) || status == AVERROR_EOF) status = 0;
         }
-        printf("Writing Audio Frame: %lu/%ld\n", frame_count, audio_stream->nb_frames);
+        if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
+            fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+            free(output_filename);
+            return 1;
+        }
+        char *bar_data = malloc(term_size.ws_col+9);
+        int32_t amount = snprintf(
+            bar_data, term_size.ws_col+1,
+            "\x1b[7mWriting Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%02.0lf", 
+            frame_count, audio_stream->nb_frames, numerator/denominator,
+            0, 0, 0.0
+        );
+        for (int32_t idx = amount; idx < term_size.ws_col+9; idx++) {
+            bar_data[idx] = ' ';
+        }
+        char *suffix = malloc(SUFFIX_MAX_SIZE+4);
+        int32_t suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE+4, "[ %lu%% ]\x1b[0m", 100*(frame_count) / audio_stream->nb_frames);
+        for (int32_t idx = 0; idx < suffix_size; idx++) {
+            bar_data[term_size.ws_col+8-suffix_size+idx] = suffix[idx];
+        }
+        free(suffix);
+        bar_data[term_size.ws_col+8] = '\0';
+        printf("%s\n", bar_data);
+        free(bar_data);
 
         if ((status = av_write_trailer(out_fmt_ctx)) < 0) {
             fprintf(stderr, "Error writing trailer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
@@ -1626,12 +1692,54 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 double rate = (double)1000000 / frame_duration;
                 numerator+=rate;
                 double time_left = (video_stream->nb_frames-frame_count-1) / (numerator/denominator);
-                printf(
-                    "Writing Video Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%02.0lf [ %lu%% ]\r", 
+                if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
+                    fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+                    free(output_filename);
+                    return 1;
+                }
+                char *bar_data = malloc(term_size.ws_col+1);
+                int32_t amount = snprintf(
+                    bar_data, term_size.ws_col+1,
+                    "Writing Video Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%02.0lf", 
                     frame_count+1, video_stream->nb_frames, numerator/denominator,
-                    (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60),
-                    100*(frame_count+1) / video_stream->nb_frames
+                    (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
                 );
+                for (int32_t idx = amount; idx < term_size.ws_col+1; idx++) {
+                    bar_data[idx] = ' ';
+                }
+                char *suffix = malloc(SUFFIX_MAX_SIZE);
+                int32_t suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count+1) / video_stream->nb_frames);
+                for (int32_t idx = 0; idx < suffix_size; idx++) {
+                    bar_data[term_size.ws_col-suffix_size+idx] = suffix[idx];
+                }
+                free(suffix);
+                bar_data[term_size.ws_col] = '\0';
+                char *full_bar = malloc(term_size.ws_col+9);
+                full_bar[0] = '\x1b';
+                full_bar[1] = '[';
+                full_bar[2] = '7';
+                full_bar[3] = 'm';
+                char insert[] = "\x1b[0m";
+                int32_t insert_offset = term_size.ws_col*(frame_count+1) / video_stream->nb_frames;
+                for (int32_t idx = 4; idx < term_size.ws_col+9; idx++) {
+                    if (idx >= insert_offset+4 && idx < insert_offset+4+4) {
+                        full_bar[idx] = insert[idx-insert_offset-4];
+                    } else {
+                        if (idx <= term_size.ws_col+8) {
+                            int32_t data_offset = 4;
+                            if (idx >= insert_offset+4) {
+                                data_offset = 8;
+                            }
+                            full_bar[idx] = bar_data[idx-data_offset];
+                        } else {
+                            full_bar[idx] = 'E';
+                        }
+                    }
+                }
+                free(bar_data);
+                full_bar[term_size.ws_col+9-1] = '\0';
+                printf("%s\r", full_bar);
+                free(full_bar);
                 denominator++;
                 fflush(stdout);
             }
