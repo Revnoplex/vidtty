@@ -342,7 +342,6 @@ int32_t avio_custom_read(void *opaque, uint8_t *buffer, int buffer_size) {
 }
 
 int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
-    (void)(options);
     VIDTXTInfo *vidtxt_info = open_vidtxt(filename);
     if (vidtxt_info == NULL) {
         return 1;
@@ -371,6 +370,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
     AVCodecContext *decoder_ctx = NULL;
     AVFormatContext *out_fmt_ctx = NULL;
     AVFormatContext *avfmt_ctx = NULL;
+    
     if (vidtxt_info->audio_size > 0 && options->no_audio == 0) {
 
         #define AVIO_BUFFER_SIZE 4096
