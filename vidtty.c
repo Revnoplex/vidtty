@@ -1285,10 +1285,8 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 free(suffix);
                 bar_data[term_size.ws_col] = '\0';
                 char *full_bar = malloc(term_size.ws_col+9);
-                full_bar[0] = '\x1b';
-                full_bar[1] = '[';
-                full_bar[2] = '7';
-                full_bar[3] = 'm';
+                char escape_prefix[] = "\x1b[7m";
+                snprintf(full_bar, sizeof(escape_prefix), "%s", escape_prefix);
                 char insert[] = "\x1b[0m";
                 int32_t insert_offset = term_size.ws_col*(frame_count) / audio_stream->nb_frames;
                 for (int32_t idx = 4; idx < term_size.ws_col+9; idx++) {
@@ -1715,10 +1713,8 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 free(suffix);
                 bar_data[term_size.ws_col] = '\0';
                 char *full_bar = malloc(term_size.ws_col+9);
-                full_bar[0] = '\x1b';
-                full_bar[1] = '[';
-                full_bar[2] = '7';
-                full_bar[3] = 'm';
+                char escape_prefix[] = "\x1b[7m";
+                snprintf(full_bar, sizeof(escape_prefix), "%s", escape_prefix);
                 char insert[] = "\x1b[0m";
                 int32_t insert_offset = term_size.ws_col*(frame_count+1) / video_stream->nb_frames;
                 for (int32_t idx = 4; idx < term_size.ws_col+9; idx++) {
