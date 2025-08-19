@@ -317,6 +317,38 @@ char *extract_filename_from_url(char *url, int32_t include_ext, char *add_str, u
     return output_buffer;
 }
 
+char *progress_bar(uint16_t columns, char *prefix, int32_t prefix_size, char *suffix, int32_t suffix_size, uint64_t numerator, uint64_t denominator) {
+    for (int32_t idx = prefix_size; idx < columns+1; idx++) {
+        prefix[idx] = ' ';
+    }
+    for (int32_t idx = 0; idx < suffix_size; idx++) {
+        prefix[columns-suffix_size+idx] = suffix[idx];
+    }
+    prefix[columns] = '\0';
+    char *full_bar = malloc(columns+9);
+    char escape_prefix[] = "\x1b[7m";
+    snprintf(full_bar, sizeof(escape_prefix), "%s", escape_prefix);
+    char insert[] = "\x1b[0m";
+    int32_t insert_offset = columns*numerator / denominator;
+    for (int32_t idx = 4; idx < columns+9; idx++) {
+        if (idx >= insert_offset+4 && idx < insert_offset+4+4) {
+            full_bar[idx] = insert[idx-insert_offset-4];
+        } else {
+            if (idx <= columns+8) {
+                int32_t data_offset = 4;
+                if (idx >= insert_offset+4) {
+                    data_offset = 8;
+                }
+                full_bar[idx] = prefix[idx-data_offset];
+            } else {
+                full_bar[idx] = 'E';
+            }
+        }
+    }
+    full_bar[columns+9-1] = '\0';
+    return full_bar;
+}
+
 int32_t avio_custom_read(void *opaque, uint8_t *buffer, int buffer_size) {
     // cast opaque to file pointer struct
     VIDTXTInfo *vidtxt_info = (VIDTXTInfo*)opaque;
@@ -740,7 +772,7 @@ ffmpeg_cleanup:
 
     #define DRAW_ERROR_TOLERANCE 256
 
-    int32_t draw_successful;
+    int32_t draw_successful = 0;
     int32_t draw_errors = 0;
     line_contents = malloc(vidtxt_info->print_columns);
     
@@ -753,7 +785,7 @@ ffmpeg_cleanup:
         goto main_cleanup;
     }
     pre_draw = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
-
+    uint64_t frame_num = 0;
     while (ch_read) {
         refresh();
 
@@ -783,6 +815,65 @@ ffmpeg_cleanup:
                 draw_errors = 0;
                 
             }
+        }
+        frame_num++;
+        if (options->debug_mode) {
+            char *prefix = malloc(curr_term_cols+1);
+            double time_position = floor(frame_num / vidtxt_info->fps) + fmod(frame_num,  vidtxt_info->fps) / vidtxt_info->fps;
+            int32_t prefix_size = snprintf(
+                prefix, curr_term_cols+1,
+                "[Frame: %lu, %02u:%02u:%06.3lf]", frame_num, 
+                (uint32_t) floor(time_position / 3600), (uint32_t) floor(time_position / 60), fmod(time_position, 60)
+            );
+            char *suffix = malloc(curr_term_cols);
+            int32_t suffix_size = snprintf(suffix, curr_term_cols, "[%02u:%02u:%06.3lf, %lu Frames, %lu%%]", 
+                (uint32_t) floor(vidtxt_info->duration / 3600), (uint32_t) floor(vidtxt_info->duration / 60), fmod(vidtxt_info->duration, 60),
+                vidtxt_info->total_frames, 100*frame_num / vidtxt_info->total_frames
+            );
+            char *full_bar = progress_bar(curr_term_cols-1, prefix, prefix_size, suffix, suffix_size, frame_num, vidtxt_info->total_frames);
+            free(suffix);
+            free(prefix);
+            uint32_t full_bar_size;
+            for (full_bar_size = 0; full_bar[full_bar_size] != '\0'; full_bar_size++);
+            chtype *ch_array = malloc(full_bar_size*sizeof(chtype));
+            uint32_t current_style = A_NORMAL;
+            int32_t read_esc_seq = 0;
+            char *ansi_esc_buffer = malloc(4);
+            uint8_t aeb_size = 0;
+            uint32_t offset = 0;
+            for (uint32_t ch = 0; ch < full_bar_size; ch++) {
+                if (full_bar[ch] == 0x1b) {
+                    read_esc_seq = 1;
+                    ch++;
+                    offset+=2;
+                    continue;
+                }
+                if (read_esc_seq) {
+                    offset++;
+                    if (full_bar[ch] == 'm') {
+                        int32_t esc_code = atoi(ansi_esc_buffer);
+                        aeb_size = 0;
+                        if (esc_code == 7) {
+                            current_style = A_STANDOUT;
+                        }
+                        if (esc_code == 0) {
+                            current_style = A_NORMAL;
+                        }
+                        read_esc_seq = 0;
+                        continue;
+                    }
+                    if (aeb_size < 4) {
+                        ansi_esc_buffer[aeb_size] = full_bar[ch];
+                        aeb_size++;
+                    }
+                    continue;
+                }
+                ch_array[ch-offset] = full_bar[ch] | current_style;
+            }
+            free(ansi_esc_buffer);
+            free(full_bar);
+            draw_successful = mvaddchnstr(curr_term_lines-1, 0, ch_array, vidtxt_info->print_columns);
+            free(ch_array);
         }
         if (draw_successful == ERR) {
             draw_successful = 0;
@@ -850,7 +941,7 @@ int32_t vidtxt_info(char *filename, VIDTTYOptions *options) {
         "Dimensions (columns x lines): %ux%u characters\n"
         "Framerate: %lf \n"
         "Total Frames: %lu \n"
-        "Duration: %02u:%02u:%02lf \n"
+        "Duration: %02u:%02u:%06.3lf \n"
         "Audio Size: %lu bytes\n", 
         filename, vidtxt_info->columns, vidtxt_info->lines, vidtxt_info->fps, vidtxt_info->total_frames, 
         (uint32_t) floor(vidtxt_info->duration / 3600), (uint32_t) floor(vidtxt_info->duration / 60), fmod(vidtxt_info->duration, 60),
@@ -1267,45 +1358,18 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                     free(output_filename);
                     return 1;
                 }
-                char *bar_data = malloc(term_size.ws_col+1);
-                int32_t amount = snprintf(
-                    bar_data, term_size.ws_col+1,
-                    "Writing Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%02.0lf", 
+                char *prefix = malloc(term_size.ws_col+1);
+                int32_t prefix_size = snprintf(
+                    prefix, term_size.ws_col+1,
+                    "Writing Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
                     frame_count, audio_stream->nb_frames, numerator/denominator,
                     (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
                 );
-                for (int32_t idx = amount; idx < term_size.ws_col+1; idx++) {
-                    bar_data[idx] = ' ';
-                }
                 char *suffix = malloc(SUFFIX_MAX_SIZE);
                 int32_t suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count) / audio_stream->nb_frames);
-                for (int32_t idx = 0; idx < suffix_size; idx++) {
-                    bar_data[term_size.ws_col-suffix_size+idx] = suffix[idx];
-                }
+                char *full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count, audio_stream->nb_frames);
                 free(suffix);
-                bar_data[term_size.ws_col] = '\0';
-                char *full_bar = malloc(term_size.ws_col+9);
-                char escape_prefix[] = "\x1b[7m";
-                snprintf(full_bar, sizeof(escape_prefix), "%s", escape_prefix);
-                char insert[] = "\x1b[0m";
-                int32_t insert_offset = term_size.ws_col*(frame_count) / audio_stream->nb_frames;
-                for (int32_t idx = 4; idx < term_size.ws_col+9; idx++) {
-                    if (idx >= insert_offset+4 && idx < insert_offset+4+4) {
-                        full_bar[idx] = insert[idx-insert_offset-4];
-                    } else {
-                        if (idx <= term_size.ws_col+8) {
-                            int32_t data_offset = 4;
-                            if (idx >= insert_offset+4) {
-                                data_offset = 8;
-                            }
-                            full_bar[idx] = bar_data[idx-data_offset];
-                        } else {
-                            full_bar[idx] = 'E';
-                        }
-                    }
-                }
-                free(bar_data);
-                full_bar[term_size.ws_col+9-1] = '\0';
+                free(prefix);
                 printf("%s\r", full_bar);
                 free(full_bar);
                 fflush(stdout);
@@ -1567,25 +1631,25 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             free(output_filename);
             return 1;
         }
-        char *bar_data = malloc(term_size.ws_col+9);
+        char *prefix = malloc(term_size.ws_col+9);
         int32_t amount = snprintf(
-            bar_data, term_size.ws_col+1,
-            "\x1b[7mWriting Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%02.0lf", 
+            prefix, term_size.ws_col+1,
+            "\x1b[7mWriting Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
             frame_count, audio_stream->nb_frames, numerator/denominator,
             0, 0, 0.0
         );
         for (int32_t idx = amount; idx < term_size.ws_col+9; idx++) {
-            bar_data[idx] = ' ';
+            prefix[idx] = ' ';
         }
         char *suffix = malloc(SUFFIX_MAX_SIZE+4);
         int32_t suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE+4, "[ %lu%% ]\x1b[0m", 100*(frame_count) / audio_stream->nb_frames);
         for (int32_t idx = 0; idx < suffix_size; idx++) {
-            bar_data[term_size.ws_col+8-suffix_size+idx] = suffix[idx];
+            prefix[term_size.ws_col+8-suffix_size+idx] = suffix[idx];
         }
         free(suffix);
-        bar_data[term_size.ws_col+8] = '\0';
-        printf("%s\n", bar_data);
-        free(bar_data);
+        prefix[term_size.ws_col+8] = '\0';
+        printf("%s\n", prefix);
+        free(prefix);
 
         if ((status = av_write_trailer(out_fmt_ctx)) < 0) {
             fprintf(stderr, "Error writing trailer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
@@ -1695,45 +1759,18 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                     free(output_filename);
                     return 1;
                 }
-                char *bar_data = malloc(term_size.ws_col+1);
-                int32_t amount = snprintf(
-                    bar_data, term_size.ws_col+1,
-                    "Writing Video Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%02.0lf", 
+                char *prefix = malloc(term_size.ws_col+1);
+                int32_t prefix_size = snprintf(
+                    prefix, term_size.ws_col+1,
+                    "Writing Video Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
                     frame_count+1, video_stream->nb_frames, numerator/denominator,
                     (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
                 );
-                for (int32_t idx = amount; idx < term_size.ws_col+1; idx++) {
-                    bar_data[idx] = ' ';
-                }
                 char *suffix = malloc(SUFFIX_MAX_SIZE);
                 int32_t suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count+1) / video_stream->nb_frames);
-                for (int32_t idx = 0; idx < suffix_size; idx++) {
-                    bar_data[term_size.ws_col-suffix_size+idx] = suffix[idx];
-                }
+                char *full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count+1, video_stream->nb_frames);
                 free(suffix);
-                bar_data[term_size.ws_col] = '\0';
-                char *full_bar = malloc(term_size.ws_col+9);
-                char escape_prefix[] = "\x1b[7m";
-                snprintf(full_bar, sizeof(escape_prefix), "%s", escape_prefix);
-                char insert[] = "\x1b[0m";
-                int32_t insert_offset = term_size.ws_col*(frame_count+1) / video_stream->nb_frames;
-                for (int32_t idx = 4; idx < term_size.ws_col+9; idx++) {
-                    if (idx >= insert_offset+4 && idx < insert_offset+4+4) {
-                        full_bar[idx] = insert[idx-insert_offset-4];
-                    } else {
-                        if (idx <= term_size.ws_col+8) {
-                            int32_t data_offset = 4;
-                            if (idx >= insert_offset+4) {
-                                data_offset = 8;
-                            }
-                            full_bar[idx] = bar_data[idx-data_offset];
-                        } else {
-                            full_bar[idx] = 'E';
-                        }
-                    }
-                }
-                free(bar_data);
-                full_bar[term_size.ws_col+9-1] = '\0';
+                free(prefix);
                 printf("%s\r", full_bar);
                 free(full_bar);
                 denominator++;
