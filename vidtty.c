@@ -1,3 +1,4 @@
+#include <libavutil/rational.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <limits.h>
@@ -1744,37 +1745,6 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 fwrite(ascii_fb, sizeof(char), ascii_fb_size, output_fp);
                 free(ascii_fb);
                 frame_count++;
-                if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
-                    status = -1;
-                    fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
-                    goto cleanup;
-                }
-                uint64_t frame_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 - pre_duration;
-                pre_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
-                double rate = (double)1000000 / frame_duration;
-                numerator+=rate;
-                double time_left = (video_stream->nb_frames-frame_count-1) / (numerator/denominator);
-                if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
-                    fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
-                    free(output_filename);
-                    return 1;
-                }
-                char *prefix = malloc(term_size.ws_col+1);
-                int32_t prefix_size = snprintf(
-                    prefix, term_size.ws_col+1,
-                    "Writing Video Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
-                    frame_count+1, video_stream->nb_frames, numerator/denominator,
-                    (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
-                );
-                char *suffix = malloc(SUFFIX_MAX_SIZE);
-                int32_t suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count+1) / video_stream->nb_frames);
-                char *full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count+1, video_stream->nb_frames);
-                free(suffix);
-                free(prefix);
-                printf("%s\r", full_bar);
-                free(full_bar);
-                denominator++;
-                fflush(stdout);
             }
         }
         av_packet_unref(video_pkt);
@@ -1807,6 +1777,601 @@ cleanup:
     av_free(audio_buffer);
     fclose(output_fp);
     free(output_filename);
+    if (status < 0) {
+        return 1;
+    }
+    return 0;
+}
+
+int32_t render_frames(char *filename, VIDTTYOptions *options) {
+    struct timespec draw_spec;
+    int32_t status = 0;
+    AVPacket *video_pkt = NULL;
+    AVFrame *video_decoded = NULL;
+    AVFrame *video_converted = NULL;
+    AVCodecContext *vd_ctx = NULL;
+    AVFormatContext *avfmt_ctx = NULL;
+    struct SwsContext *sws_ctx = NULL;
+    uint8_t *rgb_buffer = NULL;
+    struct winsize term_size;
+    int32_t curses_init = 0;
+    char *queued_err_msg = NULL;
+
+    AVPacket *audio_pkt = NULL;
+    AVFrame *audio_decoded = NULL;
+    SwrContext *swr_ctx = NULL;
+    AVAudioFifo *fifo = NULL;
+    AVCodecContext *encoder_ctx = NULL;
+    AVCodecContext *ad_ctx = NULL;
+    AVFormatContext *out_fmt_ctx = NULL;
+    uint8_t *audio_buffer = NULL;
+    uint8_t **resampled_data = NULL;
+    AVIOContext *out_avio_ctx = NULL;
+    AVFrame *audio_converted = NULL;
+    uint8_t *wav_data = NULL;
+    uint32_t wav_data_len = 0;
+    uint64_t audio_size = 0;
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+    SDL_AudioStream *stream = NULL;
+#else
+    SDL_AudioDeviceID *stream = NULL;
+#endif
+
+    avfmt_ctx = avformat_alloc_context();
+    if ((status = avformat_open_input(&avfmt_ctx, filename, NULL, NULL)) < 0) {
+        fprintf(stderr, "Could not read video file: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+        goto cleanup;
+    }
+    if ((status = avformat_find_stream_info(avfmt_ctx, NULL)) < 0) {
+        fprintf(stderr, "Could not find stream information: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+        goto cleanup;
+    }
+
+    int32_t video_idx = av_find_best_stream(avfmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
+    if (video_idx < 0) {
+        status = video_idx;
+        fprintf(stderr, "Could not find video stream: FFmpeg error 0x%02x: %s\n", video_idx, av_err2str(video_idx));
+        goto cleanup;
+    }
+
+    AVStream *video_stream = avfmt_ctx->streams[video_idx];
+
+    AVRational r_frame_rate = video_stream->r_frame_rate;
+    if (r_frame_rate.num <= 0 || r_frame_rate.den <= 0) {
+        status = -1;
+        fprintf(stderr, "Error getting frame rate!\n");
+        goto cleanup;
+    }
+    double fps = av_q2d(r_frame_rate);
+    double interval = av_q2d(av_inv_q(r_frame_rate));
+
+    int32_t audio_idx = 0;
+    if (!options->no_audio) {
+        if ((audio_idx = av_find_best_stream(avfmt_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0)) < 0) {
+            printf( "No audio stream found. Writing without audio...\n");
+            options->no_audio = 1;
+        }
+    }
+    if (!options->no_audio) {
+        AVStream *audio_stream = avfmt_ctx->streams[audio_idx];
+        const AVCodec *decoder = avcodec_find_decoder(audio_stream->codecpar->codec_id);
+        ad_ctx = avcodec_alloc_context3(decoder);
+        avcodec_parameters_to_context(ad_ctx, audio_stream->codecpar);
+        avcodec_open2(ad_ctx, decoder, NULL);
+
+        if ((status = avformat_alloc_output_context2(&out_fmt_ctx, NULL, "wav", NULL)) < 0) {
+            fprintf(stderr, "Could not create output format context: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+
+        if ((status = avio_open_dyn_buf(&out_avio_ctx)) < 0) {
+            fprintf(stderr, "Could not create output buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+
+        out_fmt_ctx->pb = out_avio_ctx;
+
+        const AVCodec *encoder = avcodec_find_encoder(AV_CODEC_ID_PCM_S16LE);
+        AVStream *output_audio_stream = avformat_new_stream(out_fmt_ctx, encoder);
+        encoder_ctx = avcodec_alloc_context3(encoder);
+        encoder_ctx->sample_fmt = AV_SAMPLE_FMT_S16;
+        encoder_ctx->sample_rate = ad_ctx->sample_rate;
+        encoder_ctx->time_base = (AVRational){1, ad_ctx->sample_rate};
+#if LIBAVUTIL_VERSION_MAJOR >= 57
+        if ((status = av_channel_layout_copy(&encoder_ctx->ch_layout, &ad_ctx->ch_layout)) < 0) {
+            fprintf(stderr, "Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+#else 
+        encoder_ctx->channel_layout = decoder_ctx->channel_layout;
+        encoder_ctx->channels = decoder_ctx->channels;
+#endif
+        if ((status = avcodec_open2(encoder_ctx, encoder, NULL)) < 0) {
+            fprintf(stderr, "Could not open encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+        if ((status = avcodec_parameters_from_context(output_audio_stream->codecpar, encoder_ctx)) < 0) {
+            fprintf(stderr, "Could not transfer codec paramaters: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+        if ((status = avformat_write_header(out_fmt_ctx, NULL)) < 0) {
+            fprintf(stderr, "Could not write header: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+
+#if LIBAVUTIL_VERSION_MAJOR >= 57
+        status = swr_alloc_set_opts2(
+            &swr_ctx,
+            &encoder_ctx->ch_layout, encoder_ctx->sample_fmt, encoder_ctx->sample_rate,
+            &ad_ctx->ch_layout, ad_ctx->sample_fmt, ad_ctx->sample_rate,
+            0, NULL
+        );
+#else
+        swr_ctx = swr_alloc_set_opts(
+            NULL,
+            encoder_ctx->channel_layout, encoder_ctx->sample_fmt, encoder_ctx->sample_rate,
+            decoder_ctx->channel_layout, decoder_ctx->sample_fmt, decoder_ctx->sample_rate,
+            0, NULL
+        );
+        status = (swr_ctx == NULL) ? AVERROR(ENOMEM) : 0;
+#endif
+        if (status < 0) {
+            fprintf(stderr, "Failed to allocate SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+        if ((status = swr_init(swr_ctx)) < 0) {
+            fprintf(stderr, "Failed to initialize SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+
+        audio_pkt = av_packet_alloc();
+        audio_decoded = av_frame_alloc();
+        audio_converted = av_frame_alloc();
+        audio_converted->format = encoder_ctx->sample_fmt;
+        audio_converted->sample_rate = encoder_ctx->sample_rate;
+
+#if LIBAVUTIL_VERSION_MAJOR >= 57
+        if ((status = av_channel_layout_copy(&audio_converted->ch_layout, &encoder_ctx->ch_layout)) < 0) {
+            fprintf(stderr, "Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+#else 
+        converted->channel_layout = encoder_ctx->channel_layout;
+        converted->channels = encoder_ctx->channels;
+#endif
+
+        int64_t next_pts = 0;
+        uint64_t frame_count = 0;
+        printf("Writing Audio Frames...\r");
+        fflush(stdout);
+        while ((status = av_read_frame(avfmt_ctx, audio_pkt)) >= 0) {
+            if (audio_pkt->stream_index != audio_idx) {
+                av_packet_unref(audio_pkt);
+                continue;
+            }
+
+            if ((status = avcodec_send_packet(ad_ctx, audio_pkt)) < 0) {
+                fprintf(stderr, "Warning: Error sending packet to decoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                break;
+            }
+            while ((status = avcodec_receive_frame(ad_ctx, audio_decoded)) == 0) {
+                av_frame_unref(audio_converted);  
+                audio_converted->nb_samples = audio_decoded->nb_samples;
+                
+                audio_converted->format       = encoder_ctx->sample_fmt;
+                audio_converted->sample_rate  = encoder_ctx->sample_rate;
+
+#if LIBAVUTIL_VERSION_MAJOR >= 57
+                if ((status = av_channel_layout_copy(&audio_converted->ch_layout, &encoder_ctx->ch_layout)) < 0) {
+                    fprintf(stderr, "Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    goto cleanup;
+                }
+#else 
+                converted->channel_layout = encoder_ctx->channel_layout;
+                converted->channels = encoder_ctx->channels;
+#endif
+                
+                if ((status = av_frame_get_buffer(audio_converted, 0)) < 0) {
+                    fprintf(stderr, "Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    goto cleanup;
+                }
+
+                int out_samples = swr_convert(
+                    swr_ctx,
+                    audio_converted->data, audio_converted->nb_samples,
+                    (const uint8_t **)audio_decoded->data, audio_decoded->nb_samples);
+
+                if (out_samples < 0) {
+                    status = out_samples;
+                    fprintf(stderr, "Error during resampling: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    goto cleanup;
+                }
+
+                audio_converted->pts = next_pts;
+                next_pts += out_samples;
+
+                if ((status = avcodec_send_frame(encoder_ctx, audio_converted)) < 0) {
+                    fprintf(stderr, "Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    goto cleanup;
+                }
+
+                while ((status = avcodec_receive_packet(encoder_ctx, audio_pkt)) == 0) {
+                    audio_pkt->stream_index = output_audio_stream->index;
+                    if ((status = av_interleaved_write_frame(out_fmt_ctx, audio_pkt)) < 0) {
+                        fprintf(stderr, "Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        goto cleanup;
+                    }
+                    av_packet_unref(audio_pkt);
+                }
+
+                av_frame_unref(audio_decoded);
+                av_frame_unref(audio_converted);
+            }
+
+            av_packet_unref(audio_pkt);
+            frame_count++;
+            if (frame_count % 1024 == 0) {
+                printf("Written %lu Audio Frames\r", frame_count);
+                fflush(stdout);
+            }
+        }
+        printf("Written %lu Audio Frames\n", frame_count);
+        fflush(stdout);
+
+        if ((status = av_write_trailer(out_fmt_ctx)) < 0) {
+            fprintf(stderr, "Error writing trailer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            goto cleanup;
+        }
+
+        audio_size = avio_close_dyn_buf(out_avio_ctx, &audio_buffer);
+        SDL_AudioSpec spec;
+        
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+        if (!SDL_SetAppMetadata(PROGRAM_NAME, VERSION, PROGRAM_NAME)) {
+            status = -1;
+            fprintf(stderr, "Error setting mixer metadata: %s\n", SDL_GetError());
+            goto cleanup;
+        }
+        if (!SDL_SetAppMetadataProperty(SDL_PROP_APP_METADATA_TYPE_STRING, "mediaplayer")) {
+            status = -1;
+            fprintf(stderr, "Error setting mixer metadata: %s\n", SDL_GetError());
+            goto cleanup;
+        }
+
+#endif
+
+        // SDL takes over signal handling for SIGINT and SIGTERM. We dont't want that so we change it back.
+
+        // save current handlers
+        struct sigaction int_action, term_action;
+        sigaction(SIGINT, NULL, &int_action);
+        sigaction(SIGTERM, NULL, &term_action);
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+        if (!SDL_Init(SDL_INIT_AUDIO)) {
+#else 
+        if (SDL_Init(SDL_INIT_AUDIO) < 0 ) {
+#endif
+            status = -1;
+            fprintf(stderr, "SDL_Init Error: %s\n", SDL_GetError());
+            goto cleanup;
+        }
+        
+        // set the saved hanlers back
+        sigaction(SIGINT, &int_action, NULL);
+        sigaction(SIGTERM, &term_action, NULL);
+
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+        SDL_IOStream *wav_stream = SDL_IOFromMem(audio_buffer, audio_size);
+        int32_t load_result = SDL_LoadWAV_IO(wav_stream, 1, &spec, &wav_data, &wav_data_len);
+#else
+        SDL_RWops *wav_stream = SDL_RWFromMem(wav_buffer, wav_size);
+        SDL_AudioSpec *spec_result;
+        spec_result = SDL_LoadWAV_RW(wav_stream, 1, &spec, &wav_data, &wav_data_len);
+        int32_t load_result = (spec_result != NULL);
+        spec = *spec_result;
+#endif
+        if (!load_result) {
+            status = -1;
+            fprintf(stderr, "Couldn't load .wav file: %s\n", SDL_GetError());
+            goto cleanup;
+        }
+
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+        stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
+#else
+        stream = malloc(sizeof(SDL_AudioDeviceID));
+        SDL_AudioDeviceID device_id = SDL_OpenAudioDevice(NULL, 0, &spec, NULL, 0);
+        if (device_id) {
+            *stream = device_id;
+        }
+#endif
+        if (!stream) {
+            status = -1;
+            fprintf(stderr, "Couldn't create audio stream: %s\n", SDL_GetError());
+            goto cleanup;
+        }
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+        if (SDL_GetAudioStreamQueued(stream) < (int)wav_data_len) {
+            SDL_PutAudioStreamData(stream, wav_data, wav_data_len);
+        }
+
+        SDL_ResumeAudioStreamDevice(stream);
+#else
+        if(SDL_QueueAudio(*stream, wav_data, wav_data_len) < 0) {
+            status = -1;
+            fprintf(stderr, "Audio could not be queued: %s\n", SDL_GetError());
+            goto main_cleanup;
+        }
+
+        SDL_PauseAudioDevice(*stream, 0);
+#endif
+    }
+
+    const AVCodec *decoder = avcodec_find_decoder(video_stream->codecpar->codec_id);
+    vd_ctx = avcodec_alloc_context3(decoder);
+    avcodec_parameters_to_context(vd_ctx, video_stream->codecpar);
+    avcodec_open2(vd_ctx, decoder, NULL);
+
+    static const char ascii_gradients[] = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+    const uint64_t ascii_size = sizeof(ascii_gradients) - 1;
+    uint64_t frame_count = 0;
+    int32_t loop_status = 0;
+    av_seek_frame(avfmt_ctx, -1, 0, AVSEEK_FLAG_BACKWARD);
+
+    int32_t curses_fd = 1;
+    char *curses_term = getenv("TERM");
+    FILE *curses_stdin = stdin;
+    FILE *curses_stdout = stdout;
+    FILE *curses_stderr = stderr;
+    if (options->tty) {
+        curses_stdin = fopen(options->tty, "r+"); 
+        curses_stdout = fopen(options->tty, "w+");
+        if (!curses_stdin || !curses_stdout) {
+            status = -1;
+            fprintf(stderr, "Couldn't open %s: %s\n", options->tty, strerror(errno));
+            goto cleanup;
+        }
+        curses_stderr = curses_stdout;
+        curses_fd = fileno(curses_stdout);
+        // todo: write method to get the TERM value of another tty
+        /*
+        currently assuming the tty is a virtual console 
+        which seems to display fine with most terminal emulators even 
+        though they have a different TERM value eg. xterm.
+        while not setting "linux" on a virtual console results in a messy output.
+        */
+        curses_term = "linux";
+    }
+
+    SCREEN *screen = newterm(curses_term, curses_stdout, curses_stdin);
+    if (screen == NULL) {
+        status = -1;
+        fprintf(stderr, "Error opening screen: errno %d: %s", errno, strerror(errno));
+        goto cleanup;
+    }
+    noecho();
+    cbreak();
+    curses_init = 1;
+
+    #define DRAW_ERROR_TOLERANCE 256
+
+    int32_t draw_successful = 0;
+    int32_t draw_errors = 0;
+
+    uint64_t pre_draw;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
+        status = -1;
+        int_str_asprintf(&queued_err_msg, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+        goto cleanup;
+    }
+    pre_draw = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
+    video_pkt = av_packet_alloc();
+    video_decoded = av_frame_alloc();
+    video_converted = av_frame_alloc();
+    double duration = floor(video_stream->nb_frames / fps) + fmod(video_stream->nb_frames,  fps) / fps;
+    while (av_read_frame(avfmt_ctx, video_pkt) >= 0) {
+        if (ioctl(curses_fd, TIOCGWINSZ, &term_size) == -1) {
+            status = -1;
+            int_str_asprintf(&queued_err_msg, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+            goto cleanup;
+        }
+            if (term_size.ws_col < 2 || term_size.ws_col < 2) {
+            int_str_asprintf(&queued_err_msg, "Invalid terminal resolution! Must be 2x2 or greater. %d %s\n", 0, "Placeholder");
+            return 1;
+        }
+        sws_ctx = sws_getContext(
+        vd_ctx->width, vd_ctx->height, vd_ctx->pix_fmt,
+        term_size.ws_col-1, term_size.ws_row-1, AV_PIX_FMT_RGB24,
+        SWS_BILINEAR, NULL, NULL, NULL);
+
+        if (!sws_ctx) {
+            fprintf(stderr, "Failed to create sws context!\n");
+            status = AVERROR(EINVAL);
+            goto cleanup;
+        }
+        
+        int buffer_size = av_image_get_buffer_size(AV_PIX_FMT_RGB24, term_size.ws_col-1, term_size.ws_row-1, 1);
+        rgb_buffer = av_malloc(buffer_size);
+        av_image_fill_arrays(video_converted->data, video_converted->linesize, rgb_buffer, AV_PIX_FMT_RGB24,
+                            term_size.ws_col-1, term_size.ws_row-1, 1);
+        refresh();
+
+        if (video_pkt->stream_index == video_idx) {
+            if ((loop_status = avcodec_send_packet(vd_ctx, video_pkt)) < 0) {
+                int_str_asprintf(&queued_err_msg, "Failed to send packet: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                break;
+            }
+
+            while ((loop_status = avcodec_receive_frame(vd_ctx, video_decoded)) >= 0) {
+                sws_scale(sws_ctx, (const uint8_t *const *)video_decoded->data, video_decoded->linesize,
+                          0, vd_ctx->height, video_converted->data, video_converted->linesize);
+                char *ascii_fb = malloc(buffer_size / 3);
+                int32_t ascii_fb_size = 0;
+                int32_t line = 0;
+                for (int32_t idx = 0; idx+2 < buffer_size; idx+=3) {
+                    uint8_t gradient = 0.299 * rgb_buffer[idx] + 0.587 * rgb_buffer[idx+1] + 0.114 * rgb_buffer[idx+2];
+                    uint64_t gradient_idx = (gradient * (ascii_size - 1)) / 255;
+                    if (gradient_idx > ascii_size) {
+                        int_str_asprintf(&queued_err_msg, "Fatal: index greater than gradient list. Aborting to prevent oob array access... %d: %s\n", 0, "Placeholder");
+                        status = -1;
+                        goto cleanup;
+                    }
+                    if (ascii_fb_size >= buffer_size / 3) {
+                        int_str_asprintf(&queued_err_msg, "Fatal: ascii_fb_size greater than what was calculated. Aborting to prevent oob array access... %d: %s\n", 0, "Placeholder");
+                        status = -1;
+                        goto cleanup;
+                    }
+                    ascii_fb[ascii_fb_size] = ascii_gradients[gradient_idx];
+                    ascii_fb_size++;
+                    if (ascii_fb_size == term_size.ws_col-1) {
+                        if (line < (uint16_t) (term_size.ws_row))  {
+                            chtype *ch_array = malloc(ascii_fb_size*sizeof(chtype));
+                            for (int32_t ch = 0; ch < ascii_fb_size; ch++) {
+                                ch_array[ch] = ascii_fb[ch] | A_NORMAL;
+                            }
+                            draw_successful = mvaddchnstr(line, 0, ch_array, ascii_fb_size);
+                            free(ch_array);
+                        }
+                        line++;
+                        ascii_fb_size = 0;
+                    }
+                }
+                free(ascii_fb);
+                frame_count++;
+                if (options->debug_mode) {
+                    char *prefix = malloc(term_size.ws_col+1);
+                    double time_position = floor(frame_count / fps) + fmod(frame_count,  fps) / fps;
+                    int32_t prefix_size = snprintf(
+                        prefix, term_size.ws_col+1,
+                        "[Frame: %lu, %02u:%02u:%06.3lf]", frame_count, 
+                        (uint32_t) floor(time_position / 3600), (uint32_t) floor(time_position / 60), fmod(time_position, 60)
+                    );
+                    char *suffix = malloc(term_size.ws_col);
+                    int32_t suffix_size = snprintf(suffix, term_size.ws_col, "[%02u:%02u:%06.3lf, %lu Frames, %lu%%]", 
+                        (uint32_t) floor(duration / 3600), (uint32_t) floor(duration / 60), fmod(duration, 60),
+                        video_stream->nb_frames, 100*frame_count / video_stream->nb_frames
+                    );
+                    char *full_bar = progress_bar(term_size.ws_col-1, prefix, prefix_size, suffix, suffix_size, frame_count, video_stream->nb_frames);
+                    free(suffix);
+                    free(prefix);
+                    uint32_t full_bar_size;
+                    for (full_bar_size = 0; full_bar[full_bar_size] != '\0'; full_bar_size++);
+                    chtype *ch_array = malloc(full_bar_size*sizeof(chtype));
+                    uint32_t current_style = A_NORMAL;
+                    int32_t read_esc_seq = 0;
+                    char *ansi_esc_buffer = malloc(4);
+                    uint8_t aeb_size = 0;
+                    uint32_t offset = 0;
+                    for (uint32_t ch = 0; ch < full_bar_size; ch++) {
+                        if (full_bar[ch] == 0x1b) {
+                            read_esc_seq = 1;
+                            ch++;
+                            offset+=2;
+                            continue;
+                        }
+                        if (read_esc_seq) {
+                            offset++;
+                            if (full_bar[ch] == 'm') {
+                                int32_t esc_code = atoi(ansi_esc_buffer);
+                                aeb_size = 0;
+                                if (esc_code == 7) {
+                                    current_style = A_STANDOUT;
+                                }
+                                if (esc_code == 0) {
+                                    current_style = A_NORMAL;
+                                }
+                                read_esc_seq = 0;
+                                continue;
+                            }
+                            if (aeb_size < 4) {
+                                ansi_esc_buffer[aeb_size] = full_bar[ch];
+                                aeb_size++;
+                            }
+                            continue;
+                        }
+                        ch_array[ch-offset] = full_bar[ch] | current_style;
+                    }
+                    free(ansi_esc_buffer);
+                    free(full_bar);
+                    draw_successful = mvaddchnstr(term_size.ws_row-1, 0, ch_array, term_size.ws_col-1);
+                    free(ch_array);
+                }
+                if (draw_successful == ERR) {
+                    draw_successful = 0;
+                    draw_errors++;
+                    continue;
+                }
+                if (draw_errors >= DRAW_ERROR_TOLERANCE) {
+                    status = -1;
+                    int_str_asprintf(&queued_err_msg, "Too many draw errors: errno %d: %s. Stopping...\n", errno, strerror(errno));
+                    goto cleanup;
+                }
+                if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
+                    status = -1;
+                    int_str_asprintf(&queued_err_msg, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+                    goto cleanup;
+                }
+                uint64_t draw_time = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 - pre_draw;
+                if (draw_time < interval * 1000000) {
+                    int32_t sleep_interval = (int32_t) (interval * 1000000 - draw_time);
+                    pre_draw = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 + sleep_interval;
+                    usleep(sleep_interval);
+                } else {
+                    if (options->debug_mode && draw_time > interval) {
+                        
+                    }
+                    pre_draw = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
+                }
+            }
+        }
+        av_packet_unref(video_pkt);
+    }
+    printf("\n");
+
+    
+cleanup:
+    if (curses_init) {
+        echo();
+        nocbreak();
+        endwin();
+    }
+    free(wav_data);
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
+    if (stream) {
+        SDL_CloseAudioDevice(*stream);
+        free(stream);
+    }
+#endif
+    sws_freeContext(sws_ctx);
+    av_packet_free(&audio_pkt);
+    av_packet_free(&video_pkt);
+    av_frame_free(&audio_decoded);  
+    av_frame_free(&video_decoded);   
+    if (status < 0 && out_avio_ctx && !audio_size) {
+        audio_size = avio_close_dyn_buf(out_avio_ctx, &audio_buffer);
+        out_avio_ctx = NULL;
+    }
+    avcodec_free_context(&encoder_ctx);
+    avformat_free_context(out_fmt_ctx);
+    av_frame_free(&video_converted);
+    av_frame_free(&audio_converted);
+    if (resampled_data) { 
+        av_freep(&resampled_data[0]); 
+        av_freep(&resampled_data); 
+    }
+    av_audio_fifo_free(fifo);
+    swr_free(&swr_ctx);
+    avcodec_free_context(&ad_ctx);
+    avcodec_free_context(&vd_ctx);
+    avformat_close_input(&avfmt_ctx);
+    av_free(rgb_buffer);
+    av_free(audio_buffer);
+    
+    if (queued_err_msg) {
+        fprintf(stderr, "%s", queued_err_msg);
+    }
+    free(queued_err_msg);
     if (status < 0) {
         return 1;
     }
@@ -2121,6 +2686,15 @@ int32_t main(int32_t argc, char *argv[]) {
         free(options);
         free_vidtty_arguments(arguments);
         return 1;
+    }
+    if (default_call == file_print_frames) {
+        uint64_t sig_value = 0;
+        FILE *fp = fopen(filename, "rb");
+        fread(&sig_value, 6, 1, fp);
+        fclose(fp);
+        if (be64toh(sig_value) != 0x5649445458540000) {
+            default_call = render_frames;
+        }
     }
     status = default_call(filename, options);
     free(options);
