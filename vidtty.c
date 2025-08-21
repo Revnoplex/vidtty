@@ -2689,10 +2689,19 @@ int32_t main(int32_t argc, char *argv[]) {
     }
     if (default_call == file_print_frames) {
         uint64_t sig_value = 0;
-        FILE *fp = fopen(filename, "rb");
-        fread(&sig_value, 6, 1, fp);
-        fclose(fp);
-        if (be64toh(sig_value) != 0x5649445458540000) {
+        int32_t is_url = includes_match(filename, "://");
+        if (!is_url) {
+            FILE *fp = fopen(filename, "rb");
+            if (fp == NULL) {
+                fprintf(stderr, "Couldn't open %s: %s\n", filename, strerror(errno));
+                free(options);
+                free_vidtty_arguments(arguments);
+                return 1;
+            }
+            fread(&sig_value, 6, 1, fp);
+            fclose(fp);
+        }
+        if (is_url || be64toh(sig_value) != 0x5649445458540000) {
             default_call = render_frames;
         }
     }
