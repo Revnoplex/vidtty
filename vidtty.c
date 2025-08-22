@@ -2170,7 +2170,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
     video_decoded = av_frame_alloc();
     video_converted = av_frame_alloc();
     int32_t break_condition = 0;
-    double duration = floor(video_stream->nb_frames / fps) + fmod(video_stream->nb_frames,  fps) / fps;
+    double duration = floor((video_stream->nb_frames-1) / fps) + fmod(video_stream->nb_frames-1,  fps) / fps;
     while (av_read_frame(avfmt_ctx, video_pkt) >= 0) {
         if (ioctl(curses_fd, TIOCGWINSZ, &term_size) == -1) {
             status = -1;
@@ -2252,9 +2252,9 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                     char *suffix = malloc(term_size.ws_col);
                     int32_t suffix_size = snprintf(suffix, term_size.ws_col, "[%02u:%02u:%06.3lf, %lu Frames, %lu%%]", 
                         (uint32_t) floor(duration / 3600), (uint32_t) floor(duration / 60), fmod(duration, 60),
-                        video_stream->nb_frames, 100*frame_count / video_stream->nb_frames
+                        video_stream->nb_frames-1, 100*frame_count / (video_stream->nb_frames-1)
                     );
-                    char *full_bar = progress_bar(term_size.ws_col-1, prefix, prefix_size, suffix, suffix_size, frame_count, video_stream->nb_frames);
+                    char *full_bar = progress_bar(term_size.ws_col-1, prefix, prefix_size, suffix, suffix_size, frame_count, video_stream->nb_frames-1);
                     free(suffix);
                     free(prefix);
                     uint32_t full_bar_size;
