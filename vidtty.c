@@ -110,6 +110,7 @@ typedef struct {
     0. Signed Integer
     1. Unsigned Inteter
     2. String
+    3. String containing Unsigned Integers
     */
 } VIDTTYArgument;
 
@@ -2434,6 +2435,9 @@ VIDTTYArgument *new_vidtty_argument(
 
 void free_vidtty_argument(VIDTTYArgument *argument) {
     if (argument) {
+        if (argument->associated_typedef == 3) {
+            free(argument->associated_option);
+        }
         free(argument->aliases);
     }
     free(argument);
@@ -2526,10 +2530,13 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
     aliases = malloc(2*sizeof(void *));
     aliases[0] = "s";
     aliases[1] = "video-size";
+    uint32_t **options_size = malloc(2*sizeof(void *));
+    options_size[0] = &options->columns;
+    options_size[1] = &options->lines;
     if ((failed = add_new_vidtty_argument(
             arguments, "size", 1, NULL, 
             "The output size of the video to convert", 
-            "VIDEO_SIZE [filename]", aliases, 2, NULL, 2
+            "VIDEO_SIZE [filename]", aliases, 2, options_size, 3
     ))) {
         fprintf(stderr, "Failed to initialise arguments\n");
         free_vidtty_arguments(arguments);
@@ -2674,6 +2681,7 @@ int32_t main(int32_t argc, char *argv[]) {
                     }
                     if (matching_argument->associated_typedef == 2) {
                         if (matching_argument->associated_option == NULL) {
+                            printf("%s\n", argv[argi+1]);
                             printf("video-size argument not implemented!\n");
                             free(options);
                             free_vidtty_arguments(arguments);
@@ -2681,6 +2689,44 @@ int32_t main(int32_t argc, char *argv[]) {
                         }
                         char **associated_option = (char **)(matching_argument->associated_option);
                         *associated_option = argv[argi+1];
+                    }
+                    if (matching_argument->associated_typedef == 3) {
+                        uint32_t **associated_option = (uint32_t **)(matching_argument->associated_option);
+                        char *checkval;
+                        errno = 0;
+                        uint64_t converted_value = 0;
+                        int32_t option_idx = 0;
+                        uint32_t option_size;
+                        for (option_size = 0; argv[argi+1][option_size] != '\0'; option_size++);
+                        char *option_buffer = malloc(option_size);
+                        int32_t arg_offset = 0;
+                        for (int32_t idx = 0; argv[argi+1][idx] != '\0'; idx++) {
+                            if ((argv[argi+1][idx] | 32) == 'x') {
+                                option_buffer[idx-arg_offset] = '\0';
+                                converted_value = strtoul(option_buffer, &checkval, 10);
+                                if (errno || *checkval != '\0' || converted_value > UINT32_MAX) {
+                                    printf("Invalid argument value. Try %s --help for usage.\n", PROGRAM_NAME);
+                                    free(options);
+                                    free_vidtty_arguments(arguments);
+                                    return 1;
+                                }
+                                *associated_option[option_idx] = (uint32_t) converted_value;
+                                arg_offset = idx+1;
+                                option_idx++;
+                                continue;
+                            }
+                            option_buffer[idx-arg_offset] = argv[argi+1][idx];
+                        }
+                        option_buffer[option_size-arg_offset] = '\0';
+                        converted_value = strtoul(option_buffer, &checkval, 10);
+                        if (errno || *checkval != '\0' || converted_value > UINT32_MAX) {
+                            printf("Invalid argument value. Try %s --help for usage.\n", PROGRAM_NAME);
+                            free(options);
+                            free_vidtty_arguments(arguments);
+                            return 1;
+                        }
+                        *associated_option[option_idx] = (uint32_t) converted_value;
+                        free(option_buffer);
                     }
                 }
                 if (matching_argument->type == 2) {
