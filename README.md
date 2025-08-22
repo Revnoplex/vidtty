@@ -35,15 +35,10 @@ This program has only been tested to work on some Linux and macOS environments l
 
 The python version of the program has been tested to work on python 3.8 and later.
 
-Neither Program currently has been testet to work on Windows.
+Neither Program currently has been tested to work on Windows.
 
 ### Supported Files
 Most video file types should work as they are decoded with ffmpeg.
-
-The C version only currently supports playing .vidtxt files and has limited .vidtxt file generation, so you will have to generate using the python version with
-```sh
-$ ./vidtty.py -d example.mp4
-```
 
 ## Installing Dependencies (Python Version)
 This program requires both python packages and binary packages than can't be installed with pip alone.
@@ -73,16 +68,25 @@ autoreconf --install
 make
 ```
 
-## Usage (Python version)
+## Usage
 Some test files are provided to use. To run the program using e.g., one of the test files run:
-
 ```sh
-$ ./vidtty.py ./fake-mr-beast-bad-apple-remix.mp4
+$ ./vidtty fake-mr-beast-bad-apple-remix.mp4
 ```
-## Usage (C version)
-To play a vidtxt file (after generating one with the python version as stated [here](#supported-files)), run:
+Python version:
 ```sh
-$ ./vidtty example.vidtxt
+$ ./vidtty.py fake-mr-beast-bad-apple-remix.mp4
+```
+
+## URL Support
+To play a video url just pass like a file:
+```sh
+$ ./vidtty https://revnoplex.xyz/media/downloads/videos/gamecube.mp4
+```
+
+You can play videos from youtube or other websites with yt-dlp (after install yt-dlp) with:
+```sh
+$ ./vidtty $(yt-dlp -f b -g "ytsearch:bad apple tf2 cover")
 ```
 
 ## VIDTXT File Format
