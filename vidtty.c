@@ -1746,6 +1746,37 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 fwrite(ascii_fb, sizeof(char), ascii_fb_size, output_fp);
                 free(ascii_fb);
                 frame_count++;
+                if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
+                    status = -1;
+                    fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+                    goto cleanup;
+                }
+                uint64_t frame_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 - pre_duration;
+                pre_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
+                double rate = (double)1000000 / frame_duration;
+                numerator+=rate;
+                double time_left = (video_stream->nb_frames-frame_count-1) / (numerator/denominator);
+                if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
+                    fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+                    free(output_filename);
+                    return 1;
+                }
+                char *prefix = malloc(term_size.ws_col+1);
+                int32_t prefix_size = snprintf(
+                    prefix, term_size.ws_col+1,
+                    "Writing Video Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
+                    frame_count+1, video_stream->nb_frames, numerator/denominator,
+                    (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
+                );
+                char *suffix = malloc(SUFFIX_MAX_SIZE);
+                int32_t suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count+1) / video_stream->nb_frames);
+                char *full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count+1, video_stream->nb_frames);
+                free(suffix);
+                free(prefix);
+                printf("%s\r", full_bar);
+                free(full_bar);
+                denominator++;
+                fflush(stdout);
             }
         }
         av_packet_unref(video_pkt);
