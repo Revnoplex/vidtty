@@ -404,6 +404,11 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
     AVCodecContext *decoder_ctx = NULL;
     AVFormatContext *out_fmt_ctx = NULL;
     AVFormatContext *avfmt_ctx = NULL;
+    struct winsize term_size;
+    struct timespec draw_spec;
+    uint64_t pre_duration;
+    double numerator;
+    double denominator;
     
     if (vidtxt_info->audio_size > 0 && options->no_audio == 0) {
 
@@ -520,9 +525,22 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
         converted->channel_layout = encoder_ctx->channel_layout;
         converted->channels = encoder_ctx->channels;
 #endif
-
+        if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
+            status = -1;
+            fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+            goto ffmpeg_cleanup;
+        }
+        pre_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
+        numerator = 0;
+        denominator = 1;
         int64_t next_pts = 0;
         uint64_t frame_count = 0;
+        int64_t nb_frames = input_audio_stream->nb_frames;
+        if (nb_frames <= 0) {
+            fprintf(stderr, "Warning: No frame count metadata! Estimating from bitrate, sample rate and frame size (this may be inaccurate)...\n");
+            double total_samples = ((vidtxt_info->audio_size * 8.0 / input_audio_stream->codecpar->bit_rate) * input_audio_stream->codecpar->sample_rate);
+            nb_frames = floor(total_samples / input_audio_stream->codecpar->frame_size)-1;
+        }
         printf("Writing Audio Frames...\r");
         fflush(stdout);
         while ((status = av_read_frame(avfmt_ctx, pkt)) >= 0) {
@@ -591,13 +609,83 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
 
             av_packet_unref(pkt);
             frame_count++;
-            if (frame_count % 1024 == 0) {
-                printf("Written %lu Audio Frames\r", frame_count);
+            if ((int64_t) frame_count > nb_frames) {
+                    nb_frames = frame_count;
+                }
+            if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
+                status = -1;
+                fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+                goto ffmpeg_cleanup;
+            }
+            uint64_t frame_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 - pre_duration;
+            pre_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
+            double rate = (double)1000000 / frame_duration;
+            numerator+=rate;
+            double time_left = (nb_frames-frame_count) / (numerator/denominator);
+            if (frame_count % 64 == 0) {
+                if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
+                    fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+                    goto ffmpeg_cleanup;
+                }
+                char *prefix = malloc(term_size.ws_col+1);
+                int32_t prefix_size;
+                int32_t suffix_size;
+                char *suffix;
+                char *full_bar;
+                if (nb_frames > 0) {
+                    prefix_size = snprintf(
+                        prefix, term_size.ws_col+1,
+                        "Writing Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
+                        frame_count, nb_frames, numerator/denominator,
+                        (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
+                    );
+                    suffix = malloc(SUFFIX_MAX_SIZE);
+                    suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count) / nb_frames);
+                    full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count, nb_frames);
+                } else {
+                    prefix_size = snprintf(
+                        prefix, term_size.ws_col+1,
+                        "Writing Audio Frame: %lu Rate: %.1lf/s", 
+                        frame_count, numerator/denominator
+                    );
+                    suffix = malloc(SUFFIX_MAX_SIZE);
+                    suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ ???%% ]");
+                    full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, 0, 1);
+                }
+                free(suffix);
+                free(prefix);
+                printf("%s\r", full_bar);
+                free(full_bar);
                 fflush(stdout);
             }
+            denominator++;
         }
-        printf("Written %lu Audio Frames\n", frame_count);
-        fflush(stdout);
+        if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
+            fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+            goto ffmpeg_cleanup;
+        }
+        char *prefix = malloc(term_size.ws_col+9);
+        if (nb_frames <= 0) {
+            nb_frames = frame_count;
+        }
+        int32_t amount = snprintf(
+            prefix, term_size.ws_col+1,
+            "\x1b[7mWriting Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
+            frame_count, nb_frames, numerator/denominator,
+            0, 0, 0.0
+        );
+        for (int32_t idx = amount; idx < term_size.ws_col+9; idx++) {
+            prefix[idx] = ' ';
+        }
+        char *suffix = malloc(SUFFIX_MAX_SIZE+4);
+        int32_t suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE+4, "[ %lu%% ]\x1b[0m", 100*(frame_count) / nb_frames);
+        for (int32_t idx = 0; idx < suffix_size; idx++) {
+            prefix[term_size.ws_col+8-suffix_size+idx] = suffix[idx];
+        }
+        free(suffix);
+        prefix[term_size.ws_col+8] = '\0';
+        printf("%s\n", prefix);
+        free(prefix);
 
         if ((status = av_write_trailer(out_fmt_ctx)) < 0) {
             fprintf(stderr, "Error writing trailer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
@@ -729,7 +817,6 @@ ffmpeg_cleanup:
     char *curses_term = getenv("TERM");
     FILE *curses_stdin = stdin;
     FILE *curses_stdout = stdout;
-    FILE *curses_stderr = stderr;
     if (options->tty) {
         curses_stdin = fopen(options->tty, "r+"); 
         curses_stdout = fopen(options->tty, "w+");
@@ -738,7 +825,6 @@ ffmpeg_cleanup:
             fprintf(stderr, "Couldn't open %s: %s\n", options->tty, strerror(errno));
             goto main_cleanup;
         }
-        curses_stderr = curses_stdout;
         curses_fd = fileno(curses_stdout);
         // todo: write method to get the TERM value of another tty
         /*
@@ -749,8 +835,6 @@ ffmpeg_cleanup:
         */
         curses_term = "linux";
     }
-
-    struct winsize term_size;
 
     if (ioctl(curses_fd, TIOCGWINSZ, &term_size) == -1) {
         status = -1;
@@ -779,7 +863,6 @@ ffmpeg_cleanup:
     line_contents = malloc(vidtxt_info->print_columns);
     
     uint64_t pre_draw;
-    struct timespec draw_spec;
 
     if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
         status = -1;
@@ -899,7 +982,6 @@ ffmpeg_cleanup:
             usleep(sleep_interval);
         } else {
             if (options->debug_mode && draw_time > interval) {
-                fprintf(curses_stderr, "Falling behind");
             }
             pre_draw = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
         }
@@ -1350,7 +1432,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             }
             if (status == AVERROR(EAGAIN) || status == AVERROR_EOF) {status = 0;}
             frame_count++;
-            if (frame_count > nb_frames) {
+            if ((int64_t) frame_count > nb_frames) {
                     nb_frames = frame_count;
             }
             if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
@@ -1366,8 +1448,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             if (frame_count % 64 == 0) {
                 if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
                     fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
-                    free(output_filename);
-                    return 1;
+                    goto cleanup;
                 }
                 char *prefix = malloc(term_size.ws_col+1);
                 int32_t prefix_size;
@@ -1654,8 +1735,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
         }
         if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
             fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
-            free(output_filename);
-            return 1;
+            goto cleanup;
         }
         char *prefix = malloc(term_size.ws_col+9);
         if (nb_frames <= 0) {
@@ -1778,7 +1858,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 fwrite(ascii_fb, sizeof(char), ascii_fb_size, output_fp);
                 free(ascii_fb);
                 frame_count++;
-                if (frame_count > nb_frames) {
+                if ((int64_t) frame_count > nb_frames) {
                     nb_frames = frame_count;
                 }
                 if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
@@ -1793,8 +1873,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 double time_left = (nb_frames-frame_count-1) / (numerator/denominator);
                 if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
                     fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
-                    free(output_filename);
-                    return 1;
+                    goto cleanup;
                 }
                 char *prefix = malloc(term_size.ws_col+1);
                 int32_t prefix_size;
@@ -1893,6 +1972,9 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
     uint8_t *wav_data = NULL;
     uint32_t wav_data_len = 0;
     uint64_t audio_size = 0;
+    uint64_t pre_duration;
+    double numerator;
+    double denominator;
 #if SDL_VERSION_ATLEAST(3, 0, 0)
     SDL_AudioStream *stream = NULL;
 #else
@@ -2021,9 +2103,22 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         converted->channel_layout = encoder_ctx->channel_layout;
         converted->channels = encoder_ctx->channels;
 #endif
-
+        if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
+            status = -1;
+            fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+            goto cleanup;
+        }
+        pre_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
+        numerator = 0;
+        denominator = 1;
         int64_t next_pts = 0;
         uint64_t frame_count = 0;
+        int64_t nb_frames = audio_stream->nb_frames;
+        if (nb_frames <= 0) {
+            fprintf(stderr, "Warning: No frame count metadata! Estimating from bitrate, sample rate and frame size (this may be inaccurate)...\n");
+            double total_samples = (double)avfmt_ctx->duration / AV_TIME_BASE * audio_stream->codecpar->sample_rate;
+            nb_frames = floor(total_samples / audio_stream->codecpar->frame_size)-1;
+        }
         printf("Writing Audio Frames...\r");
         fflush(stdout);
         while ((status = av_read_frame(avfmt_ctx, audio_pkt)) >= 0) {
@@ -2092,13 +2187,83 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
 
             av_packet_unref(audio_pkt);
             frame_count++;
-            if (frame_count % 1024 == 0) {
-                printf("Written %lu Audio Frames\r", frame_count);
+            if ((int64_t) frame_count > nb_frames) {
+                    nb_frames = frame_count;
+                }
+            if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
+                status = -1;
+                fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+                goto cleanup;
+            }
+            uint64_t frame_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 - pre_duration;
+            pre_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
+            double rate = (double)1000000 / frame_duration;
+            numerator+=rate;
+            double time_left = (nb_frames-frame_count) / (numerator/denominator);
+            if (frame_count % 64 == 0) {
+                if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
+                    fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+                    goto cleanup;
+                }
+                char *prefix = malloc(term_size.ws_col+1);
+                int32_t prefix_size;
+                int32_t suffix_size;
+                char *suffix;
+                char *full_bar;
+                if (nb_frames > 0) {
+                    prefix_size = snprintf(
+                        prefix, term_size.ws_col+1,
+                        "Writing Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
+                        frame_count, nb_frames, numerator/denominator,
+                        (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
+                    );
+                    suffix = malloc(SUFFIX_MAX_SIZE);
+                    suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count) / nb_frames);
+                    full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count, nb_frames);
+                } else {
+                    prefix_size = snprintf(
+                        prefix, term_size.ws_col+1,
+                        "Writing Audio Frame: %lu Rate: %.1lf/s", 
+                        frame_count, numerator/denominator
+                    );
+                    suffix = malloc(SUFFIX_MAX_SIZE);
+                    suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ ???%% ]");
+                    full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, 0, 1);
+                }
+                free(suffix);
+                free(prefix);
+                printf("%s\r", full_bar);
+                free(full_bar);
                 fflush(stdout);
             }
+            denominator++;
         }
-        printf("Written %lu Audio Frames\n", frame_count);
-        fflush(stdout);
+        if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
+            fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+            goto cleanup;
+        }
+        char *prefix = malloc(term_size.ws_col+9);
+        if (nb_frames <= 0) {
+            nb_frames = frame_count;
+        }
+        int32_t amount = snprintf(
+            prefix, term_size.ws_col+1,
+            "\x1b[7mWriting Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
+            frame_count, nb_frames, numerator/denominator,
+            0, 0, 0.0
+        );
+        for (int32_t idx = amount; idx < term_size.ws_col+9; idx++) {
+            prefix[idx] = ' ';
+        }
+        char *suffix = malloc(SUFFIX_MAX_SIZE+4);
+        int32_t suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE+4, "[ %lu%% ]\x1b[0m", 100*(frame_count) / nb_frames);
+        for (int32_t idx = 0; idx < suffix_size; idx++) {
+            prefix[term_size.ws_col+8-suffix_size+idx] = suffix[idx];
+        }
+        free(suffix);
+        prefix[term_size.ws_col+8] = '\0';
+        printf("%s\n", prefix);
+        free(prefix);
 
         if ((status = av_write_trailer(out_fmt_ctx)) < 0) {
             fprintf(stderr, "Error writing trailer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
@@ -2204,7 +2369,6 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
     char *curses_term = getenv("TERM");
     FILE *curses_stdin = stdin;
     FILE *curses_stdout = stdout;
-    FILE *curses_stderr = stderr;
     if (options->tty) {
         curses_stdin = fopen(options->tty, "r+"); 
         curses_stdout = fopen(options->tty, "w+");
@@ -2213,7 +2377,6 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
             fprintf(stderr, "Couldn't open %s: %s\n", options->tty, strerror(errno));
             goto cleanup;
         }
-        curses_stderr = curses_stdout;
         curses_fd = fileno(curses_stdout);
         // todo: write method to get the TERM value of another tty
         /*
@@ -2328,7 +2491,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                 }
                 free(ascii_fb);
                 frame_count++;
-                if (frame_count > nb_frames) {
+                if ((int64_t) frame_count > nb_frames) {
                     nb_frames = frame_count;
                 }
                 if (options->debug_mode) {
