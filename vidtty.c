@@ -1230,8 +1230,12 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
         numerator = 0;
         denominator = 1;
         uint64_t frame_count = 0;
-        printf("%ld\n", audio_stream->nb_frames);
-        printf("%lf\n", (double) avfmt_ctx->duration / 1000000);
+        int64_t nb_frames = audio_stream->nb_frames;
+        if (nb_frames <= 0) {
+            int64_t decoder_frames = (int64_t)((double) avfmt_ctx->duration / 1000000 * audio_stream->codecpar->sample_rate + 0.5);
+            fprintf(stderr, "Warning: No frame count metadata! Estimating from sample rate and frame size (this may be inaccurate)...\n");
+            nb_frames = (decoder_frames + encoder_ctx->frame_size - 1) / encoder_ctx->frame_size;
+        }
         printf("Writing Audio Frames...\r");
         fflush(stdout);
         while ((status = av_read_frame(avfmt_ctx, audio_pkt)) >= 0) {
@@ -1346,6 +1350,9 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             }
             if (status == AVERROR(EAGAIN) || status == AVERROR_EOF) {status = 0;}
             frame_count++;
+            if (frame_count > nb_frames) {
+                    nb_frames = frame_count;
+            }
             if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
                 status = -1;
                 fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
@@ -1355,7 +1362,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             pre_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
             double rate = (double)1000000 / frame_duration;
             numerator+=rate;
-            double time_left = (audio_stream->nb_frames-frame_count-1) / (numerator/denominator);
+            double time_left = (nb_frames-frame_count) / (numerator/denominator);
             if (frame_count % 64 == 0) {
                 if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
                     fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
@@ -1367,16 +1374,16 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 int32_t suffix_size;
                 char *suffix;
                 char *full_bar;
-                if (audio_stream->nb_frames > 0) {
+                if (nb_frames > 0) {
                     prefix_size = snprintf(
                         prefix, term_size.ws_col+1,
                         "Writing Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
-                        frame_count, audio_stream->nb_frames, numerator/denominator,
+                        frame_count, nb_frames, numerator/denominator,
                         (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
                     );
                     suffix = malloc(SUFFIX_MAX_SIZE);
-                    suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count) / audio_stream->nb_frames);
-                    full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count, audio_stream->nb_frames);
+                    suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count) / nb_frames);
+                    full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count, nb_frames);
                 } else {
                     prefix_size = snprintf(
                         prefix, term_size.ws_col+1,
@@ -1651,10 +1658,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             return 1;
         }
         char *prefix = malloc(term_size.ws_col+9);
-        int64_t nb_frames;
-        if (audio_stream->nb_frames > 0) {
-            nb_frames = audio_stream->nb_frames;
-        } else {
+        if (nb_frames <= 0) {
             nb_frames = frame_count;
         }
         int32_t amount = snprintf(
@@ -1738,6 +1742,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
     pre_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
     numerator = 0;
     denominator = 1;
+    int64_t nb_frames = video_stream->nb_frames;
+    if (nb_frames <= 0) {
+        fprintf(stderr, "Warning: No frame count metadata! Estimating from duration and fps...\n");
+        nb_frames = (int64_t)((double) avfmt_ctx->duration / 1000000 * fps + 0.5);
+    }
     while (av_read_frame(avfmt_ctx, video_pkt) >= 0) {
         if (video_pkt->stream_index == video_idx) {
             if ((loop_status = avcodec_send_packet(vd_ctx, video_pkt)) < 0) {
@@ -1769,6 +1778,9 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 fwrite(ascii_fb, sizeof(char), ascii_fb_size, output_fp);
                 free(ascii_fb);
                 frame_count++;
+                if (frame_count > nb_frames) {
+                    nb_frames = frame_count;
+                }
                 if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
                     status = -1;
                     fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
@@ -1778,7 +1790,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 pre_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
                 double rate = (double)1000000 / frame_duration;
                 numerator+=rate;
-                double time_left = (video_stream->nb_frames-frame_count-1) / (numerator/denominator);
+                double time_left = (nb_frames-frame_count-1) / (numerator/denominator);
                 if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
                     fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
                     free(output_filename);
@@ -1789,16 +1801,16 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 int32_t suffix_size;
                 char *suffix;
                 char *full_bar;
-                if (video_stream->nb_frames > 0) {
+                if (nb_frames > 0) {
                     prefix_size = snprintf(
                         prefix, term_size.ws_col+1,
                         "Writing Video Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
-                        frame_count+1, video_stream->nb_frames, numerator/denominator,
+                        frame_count+1, nb_frames, numerator/denominator,
                         (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
                     );
                     suffix = malloc(SUFFIX_MAX_SIZE);
-                    suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count+1) / video_stream->nb_frames);
-                    full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count+1, video_stream->nb_frames);
+                    suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count+1) / nb_frames);
+                    full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count+1, nb_frames);
                 } else {
                     prefix_size = snprintf(
                         prefix, term_size.ws_col+1,
@@ -2240,7 +2252,12 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
     video_decoded = av_frame_alloc();
     video_converted = av_frame_alloc();
     int32_t break_condition = 0;
-    double duration = floor((video_stream->nb_frames-1) / fps) + fmod(video_stream->nb_frames-1,  fps) / fps;
+    int64_t nb_frames = video_stream->nb_frames;
+        if (nb_frames <= 0) {
+            fprintf(stderr, "Warning: No frame count metadata! Estimating from duration and fps...\n");
+            nb_frames = (int64_t)((double) avfmt_ctx->duration / 1000000 * fps + 0.5);
+        }
+    double duration = floor((nb_frames-1) / fps) + fmod(nb_frames-1,  fps) / fps;
     while (av_read_frame(avfmt_ctx, video_pkt) >= 0) {
         if (ioctl(curses_fd, TIOCGWINSZ, &term_size) == -1) {
             status = -1;
@@ -2311,6 +2328,9 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                 }
                 free(ascii_fb);
                 frame_count++;
+                if (frame_count > nb_frames) {
+                    nb_frames = frame_count;
+                }
                 if (options->debug_mode) {
                     char *prefix = malloc(term_size.ws_col+1);
                     double time_position = floor(frame_count / fps) + fmod(frame_count,  fps) / fps;
@@ -2322,9 +2342,9 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                     char *suffix = malloc(term_size.ws_col);
                     int32_t suffix_size = snprintf(suffix, term_size.ws_col, "[%02u:%02u:%06.3lf, %lu Frames, %lu%%]", 
                         (uint32_t) floor(duration / 3600), (uint32_t) floor(duration / 60), fmod(duration, 60),
-                        video_stream->nb_frames-1, 100*frame_count / (video_stream->nb_frames-1)
+                        nb_frames-1, 100*frame_count / (nb_frames-1)
                     );
-                    char *full_bar = progress_bar(term_size.ws_col-1, prefix, prefix_size, suffix, suffix_size, frame_count, video_stream->nb_frames-1);
+                    char *full_bar = progress_bar(term_size.ws_col-1, prefix, prefix_size, suffix, suffix_size, frame_count, nb_frames-1);
                     free(suffix);
                     free(prefix);
                     uint32_t full_bar_size;
