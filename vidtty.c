@@ -2169,6 +2169,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
     video_pkt = av_packet_alloc();
     video_decoded = av_frame_alloc();
     video_converted = av_frame_alloc();
+    int32_t break_condition = 0;
     double duration = floor(video_stream->nb_frames / fps) + fmod(video_stream->nb_frames,  fps) / fps;
     while (av_read_frame(avfmt_ctx, video_pkt) >= 0) {
         if (ioctl(curses_fd, TIOCGWINSZ, &term_size) == -1) {
@@ -2200,7 +2201,8 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         if (video_pkt->stream_index == video_idx) {
             if ((loop_status = avcodec_send_packet(vd_ctx, video_pkt)) < 0) {
                 int_str_asprintf(&queued_err_msg, "Failed to send packet: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
-                break;
+                break_condition = 1;
+                goto loop_cleanup;
             }
 
             while ((loop_status = avcodec_receive_frame(vd_ctx, video_decoded)) >= 0) {
@@ -2215,12 +2217,12 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                     if (gradient_idx > ascii_size) {
                         int_str_asprintf(&queued_err_msg, "Fatal: index greater than gradient list. Aborting to prevent oob array access... %d: %s\n", 0, "Placeholder");
                         status = -1;
-                        goto cleanup;
+                        goto loop_cleanup;
                     }
                     if (ascii_fb_size >= buffer_size / 3) {
                         int_str_asprintf(&queued_err_msg, "Fatal: ascii_fb_size greater than what was calculated. Aborting to prevent oob array access... %d: %s\n", 0, "Placeholder");
                         status = -1;
-                        goto cleanup;
+                        goto loop_cleanup;
                     }
                     ascii_fb[ascii_fb_size] = ascii_gradients[gradient_idx];
                     ascii_fb_size++;
@@ -2305,12 +2307,12 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                 if (draw_errors >= DRAW_ERROR_TOLERANCE) {
                     status = -1;
                     int_str_asprintf(&queued_err_msg, "Too many draw errors: errno %d: %s. Stopping...\n", errno, strerror(errno));
-                    goto cleanup;
+                    goto loop_cleanup;
                 }
                 if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
                     status = -1;
                     int_str_asprintf(&queued_err_msg, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
-                    goto cleanup;
+                    goto loop_cleanup;
                 }
                 uint64_t draw_time = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 - pre_draw;
                 if (draw_time < interval * 1000000) {
@@ -2325,9 +2327,17 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                 }
             }
         }
+loop_cleanup:
         av_packet_unref(video_pkt);
+        sws_freeContext(sws_ctx);
+        av_free(rgb_buffer);
+        if (break_condition) {
+            break;
+        }
+        if (status < 0) {
+            goto cleanup;
+        }
     }
-    printf("\n");
 
     
 cleanup:
@@ -2343,7 +2353,6 @@ cleanup:
         free(stream);
     }
 #endif
-    sws_freeContext(sws_ctx);
     av_packet_free(&audio_pkt);
     av_packet_free(&video_pkt);
     av_frame_free(&audio_decoded);  
@@ -2365,7 +2374,6 @@ cleanup:
     avcodec_free_context(&ad_ctx);
     avcodec_free_context(&vd_ctx);
     avformat_close_input(&avfmt_ctx);
-    av_free(rgb_buffer);
     av_free(audio_buffer);
     
     if (queued_err_msg) {
