@@ -1230,6 +1230,8 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
         numerator = 0;
         denominator = 1;
         uint64_t frame_count = 0;
+        printf("%ld\n", audio_stream->nb_frames);
+        printf("%lf\n", (double) avfmt_ctx->duration / 1000000);
         printf("Writing Audio Frames...\r");
         fflush(stdout);
         while ((status = av_read_frame(avfmt_ctx, audio_pkt)) >= 0) {
@@ -1361,15 +1363,30 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                     return 1;
                 }
                 char *prefix = malloc(term_size.ws_col+1);
-                int32_t prefix_size = snprintf(
-                    prefix, term_size.ws_col+1,
-                    "Writing Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
-                    frame_count, audio_stream->nb_frames, numerator/denominator,
-                    (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
-                );
-                char *suffix = malloc(SUFFIX_MAX_SIZE);
-                int32_t suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count) / audio_stream->nb_frames);
-                char *full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count, audio_stream->nb_frames);
+                int32_t prefix_size;
+                int32_t suffix_size;
+                char *suffix;
+                char *full_bar;
+                if (audio_stream->nb_frames > 0) {
+                    prefix_size = snprintf(
+                        prefix, term_size.ws_col+1,
+                        "Writing Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
+                        frame_count, audio_stream->nb_frames, numerator/denominator,
+                        (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
+                    );
+                    suffix = malloc(SUFFIX_MAX_SIZE);
+                    suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count) / audio_stream->nb_frames);
+                    full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count, audio_stream->nb_frames);
+                } else {
+                    prefix_size = snprintf(
+                        prefix, term_size.ws_col+1,
+                        "Writing Audio Frame: %lu Rate: %.1lf/s", 
+                        frame_count, numerator/denominator
+                    );
+                    suffix = malloc(SUFFIX_MAX_SIZE);
+                    suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ ???%% ]");
+                    full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, 0, 1);
+                }
                 free(suffix);
                 free(prefix);
                 printf("%s\r", full_bar);
@@ -1634,17 +1651,23 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             return 1;
         }
         char *prefix = malloc(term_size.ws_col+9);
+        int64_t nb_frames;
+        if (audio_stream->nb_frames > 0) {
+            nb_frames = audio_stream->nb_frames;
+        } else {
+            nb_frames = frame_count;
+        }
         int32_t amount = snprintf(
             prefix, term_size.ws_col+1,
             "\x1b[7mWriting Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
-            frame_count, audio_stream->nb_frames, numerator/denominator,
+            frame_count, nb_frames, numerator/denominator,
             0, 0, 0.0
         );
         for (int32_t idx = amount; idx < term_size.ws_col+9; idx++) {
             prefix[idx] = ' ';
         }
         char *suffix = malloc(SUFFIX_MAX_SIZE+4);
-        int32_t suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE+4, "[ %lu%% ]\x1b[0m", 100*(frame_count) / audio_stream->nb_frames);
+        int32_t suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE+4, "[ %lu%% ]\x1b[0m", 100*(frame_count) / nb_frames);
         for (int32_t idx = 0; idx < suffix_size; idx++) {
             prefix[term_size.ws_col+8-suffix_size+idx] = suffix[idx];
         }
@@ -1762,15 +1785,30 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                     return 1;
                 }
                 char *prefix = malloc(term_size.ws_col+1);
-                int32_t prefix_size = snprintf(
-                    prefix, term_size.ws_col+1,
-                    "Writing Video Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
-                    frame_count+1, video_stream->nb_frames, numerator/denominator,
-                    (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
-                );
-                char *suffix = malloc(SUFFIX_MAX_SIZE);
-                int32_t suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count+1) / video_stream->nb_frames);
-                char *full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count+1, video_stream->nb_frames);
+                int32_t prefix_size;
+                int32_t suffix_size;
+                char *suffix;
+                char *full_bar;
+                if (video_stream->nb_frames > 0) {
+                    prefix_size = snprintf(
+                        prefix, term_size.ws_col+1,
+                        "Writing Video Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
+                        frame_count+1, video_stream->nb_frames, numerator/denominator,
+                        (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
+                    );
+                    suffix = malloc(SUFFIX_MAX_SIZE);
+                    suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count+1) / video_stream->nb_frames);
+                    full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count+1, video_stream->nb_frames);
+                } else {
+                    prefix_size = snprintf(
+                        prefix, term_size.ws_col+1,
+                        "Writing Video Frame: %lu Rate: %.1lf/s", 
+                        frame_count+1, numerator/denominator
+                    );
+                    suffix = malloc(SUFFIX_MAX_SIZE);
+                    suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ ???%% ]");
+                    full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, 0, 1);
+                }
                 free(suffix);
                 free(prefix);
                 printf("%s\r", full_bar);
