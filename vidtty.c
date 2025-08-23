@@ -782,22 +782,6 @@ ffmpeg_cleanup:
             fprintf(stderr, "Couldn't create audio stream: %s\n", SDL_GetError());
             goto main_cleanup;
         }
-#if SDL_VERSION_ATLEAST(3, 0, 0)
-        if (SDL_GetAudioStreamQueued(stream) < (int)wav_data_len) {
-            SDL_PutAudioStreamData(stream, wav_data, wav_data_len);
-        }
-
-        SDL_ResumeAudioStreamDevice(stream);
-#else
-        if(SDL_QueueAudio(*stream, wav_data, wav_data_len) < 0) {
-            status = -1;
-            fprintf(stderr, "Audio could not be queued: %s\n", SDL_GetError());
-            goto main_cleanup;
-        }
-
-        SDL_PauseAudioDevice(*stream, 0);
-#endif
- 
     }
 
     if (fseek(vidtxt_info->fp, VIDTXT_HEADER_SIZE + vidtxt_info->audio_size, 0)) {
@@ -821,9 +805,76 @@ ffmpeg_cleanup:
         curses_stdin = fopen(options->tty, "r+"); 
         curses_stdout = fopen(options->tty, "w+");
         if (!curses_stdin || !curses_stdout) {
-            status = -1;
-            fprintf(stderr, "Couldn't open %s: %s\n", options->tty, strerror(errno));
-            goto main_cleanup;
+            if (errno == EACCES) {
+                printf("Need permission to write to \x1b[1m%s\x1b[0m\nRunning sudo...\n", options->tty);
+                uint64_t max_cb_size = snprintf(NULL, 0, "sudo chown %u %s", UINT32_MAX, options->tty);
+                char *ch_buffer = malloc(max_cb_size+1);
+                int32_t buffer_written = snprintf(ch_buffer, max_cb_size+1, "sudo chown %u %s", getuid(), options->tty);
+                if (buffer_written <= 0) {
+                    status = -1;
+                    fprintf(stderr, "Error concentrating chown command\n");
+                    goto main_cleanup;
+                }
+                int32_t ch_status = system(ch_buffer);
+                free(ch_buffer);
+                int32_t ch_failed = WEXITSTATUS(ch_status);
+                if (WIFSIGNALED(ch_status)) {
+                    if (WTERMSIG(ch_status) == 2) {
+                        fprintf(stderr, "Sudo aborted by user\n");
+                    } else {
+                        fprintf(
+                            stderr, "Sudo exited due to signal %d: %s\n", 
+                            WTERMSIG(ch_status), strsignal(WTERMSIG(ch_status)));
+                    }
+                    status = 128+WTERMSIG(ch_status);
+                    goto main_cleanup;
+                }
+                if (ch_failed) {
+                    fprintf(stderr, "Changing ownership of %s failed with exit code %d!\n", options->tty, ch_failed);
+                    status = -1;
+                    goto main_cleanup;
+                }
+                max_cb_size = snprintf(NULL, 0, "chmod 600 %s", options->tty);
+                ch_buffer = malloc(max_cb_size+1);
+                buffer_written = snprintf(ch_buffer, max_cb_size+1, "chmod 600 %s", options->tty);
+                if (buffer_written <= 0) {
+                    status = -1;
+                    fprintf(stderr, "Error concentrating chmod command\n");
+                    goto main_cleanup;
+                }
+                ch_status = system(ch_buffer);
+                free(ch_buffer);
+                ch_failed = WEXITSTATUS(ch_status);
+                if (WIFSIGNALED(ch_status)) {
+                    if (WTERMSIG(ch_status) == 2) {
+                        fprintf(stderr, "Sudo aborted by user\n");
+                    } else {
+                        fprintf(
+                            stderr, "Sudo exited due to signal %d: %s\n", 
+                            WTERMSIG(ch_status), strsignal(WTERMSIG(ch_status)));
+                    }
+                    status = 128+WTERMSIG(ch_status);
+                    goto main_cleanup;
+                }
+                if (ch_failed) {
+                    fprintf(stderr, "Changing permissions of %s failed with exit code %d!\n", options->tty, ch_failed);
+                    status = -1;
+                    goto main_cleanup;
+                }
+                curses_stdin = fopen(options->tty, "r+"); 
+                curses_stdout = fopen(options->tty, "w+");
+                if (!curses_stdin || !curses_stdout) {
+                    printf("%d\n", errno);
+                    status = -1;
+                    fprintf(stderr, "Couldn't open %s: %s\n", options->tty, strerror(errno));
+                    goto main_cleanup;
+                }
+            } else {
+                printf("%d\n", errno);
+                status = -1;
+                fprintf(stderr, "Couldn't open %s: %s\n", options->tty, strerror(errno));
+                goto main_cleanup;
+            }
         }
         curses_fd = fileno(curses_stdout);
         // todo: write method to get the TERM value of another tty
@@ -834,6 +885,7 @@ ffmpeg_cleanup:
         while not setting "linux" on a virtual console results in a messy output.
         */
         curses_term = "linux";
+        printf("Running on another terminal session...\n");
     }
 
     if (ioctl(curses_fd, TIOCGWINSZ, &term_size) == -1) {
@@ -871,6 +923,23 @@ ffmpeg_cleanup:
     }
     pre_draw = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
     uint64_t frame_num = 0;
+    if (vidtxt_info->audio_size > 0 && options->no_audio == 0) {
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+        if (SDL_GetAudioStreamQueued(stream) < (int)wav_data_len) {
+            SDL_PutAudioStreamData(stream, wav_data, wav_data_len);
+        }
+
+        SDL_ResumeAudioStreamDevice(stream);
+#else
+        if(SDL_QueueAudio(*stream, wav_data, wav_data_len) < 0) {
+            status = -1;
+            fprintf(stderr, "Audio could not be queued: %s\n", SDL_GetError());
+            goto main_cleanup;
+        }
+
+        SDL_PauseAudioDevice(*stream, 0);
+#endif
+    }
     while (ch_read) {
         refresh();
 
@@ -1009,6 +1078,9 @@ main_cleanup:
     free(queued_err_msg);
     if (status < 0){
         return 1;
+    }
+    if (status >= 128) {
+        return status;
     }
     return 0;
 }
@@ -2337,21 +2409,6 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
             fprintf(stderr, "Couldn't create audio stream: %s\n", SDL_GetError());
             goto cleanup;
         }
-#if SDL_VERSION_ATLEAST(3, 0, 0)
-        if (SDL_GetAudioStreamQueued(stream) < (int)wav_data_len) {
-            SDL_PutAudioStreamData(stream, wav_data, wav_data_len);
-        }
-
-        SDL_ResumeAudioStreamDevice(stream);
-#else
-        if(SDL_QueueAudio(*stream, wav_data, wav_data_len) < 0) {
-            status = -1;
-            fprintf(stderr, "Audio could not be queued: %s\n", SDL_GetError());
-            goto main_cleanup;
-        }
-
-        SDL_PauseAudioDevice(*stream, 0);
-#endif
     }
 
     const AVCodec *decoder = avcodec_find_decoder(video_stream->codecpar->codec_id);
@@ -2373,9 +2430,76 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         curses_stdin = fopen(options->tty, "r+"); 
         curses_stdout = fopen(options->tty, "w+");
         if (!curses_stdin || !curses_stdout) {
-            status = -1;
-            fprintf(stderr, "Couldn't open %s: %s\n", options->tty, strerror(errno));
-            goto cleanup;
+            if (errno == EACCES) {
+                printf("Need permission to write to \x1b[1m%s\x1b[0m\nRunning sudo...\n", options->tty);
+                uint64_t max_cb_size = snprintf(NULL, 0, "sudo chown %u %s", UINT32_MAX, options->tty);
+                char *ch_buffer = malloc(max_cb_size+1);
+                int32_t buffer_written = snprintf(ch_buffer, max_cb_size+1, "sudo chown %u %s", getuid(), options->tty);
+                if (buffer_written <= 0) {
+                    status = -1;
+                    fprintf(stderr, "Error concentrating chown command\n");
+                    goto cleanup;
+                }
+                int32_t ch_status = system(ch_buffer);
+                free(ch_buffer);
+                int32_t ch_failed = WEXITSTATUS(ch_status);
+                if (WIFSIGNALED(ch_status)) {
+                    if (WTERMSIG(ch_status) == 2) {
+                        fprintf(stderr, "Sudo aborted by user\n");
+                    } else {
+                        fprintf(
+                            stderr, "Sudo exited due to signal %d: %s\n", 
+                            WTERMSIG(ch_status), strsignal(WTERMSIG(ch_status)));
+                    }
+                    status = 128+WTERMSIG(ch_status);
+                    goto cleanup;
+                }
+                if (ch_failed) {
+                    fprintf(stderr, "Changing ownership of %s failed with exit code %d!\n", options->tty, ch_failed);
+                    status = -1;
+                    goto cleanup;
+                }
+                max_cb_size = snprintf(NULL, 0, "chmod 600 %s", options->tty);
+                ch_buffer = malloc(max_cb_size+1);
+                buffer_written = snprintf(ch_buffer, max_cb_size+1, "chmod 600 %s", options->tty);
+                if (buffer_written <= 0) {
+                    status = -1;
+                    fprintf(stderr, "Error concentrating chmod command\n");
+                    goto cleanup;
+                }
+                ch_status = system(ch_buffer);
+                free(ch_buffer);
+                ch_failed = WEXITSTATUS(ch_status);
+                if (WIFSIGNALED(ch_status)) {
+                    if (WTERMSIG(ch_status) == 2) {
+                        fprintf(stderr, "Sudo aborted by user\n");
+                    } else {
+                        fprintf(
+                            stderr, "Sudo exited due to signal %d: %s\n", 
+                            WTERMSIG(ch_status), strsignal(WTERMSIG(ch_status)));
+                    }
+                    status = 128+WTERMSIG(ch_status);
+                    goto cleanup;
+                }
+                if (ch_failed) {
+                    fprintf(stderr, "Changing permissions of %s failed with exit code %d!\n", options->tty, ch_failed);
+                    status = -1;
+                    goto cleanup;
+                }
+                curses_stdin = fopen(options->tty, "r+"); 
+                curses_stdout = fopen(options->tty, "w+");
+                if (!curses_stdin || !curses_stdout) {
+                    printf("%d\n", errno);
+                    status = -1;
+                    fprintf(stderr, "Couldn't open %s: %s\n", options->tty, strerror(errno));
+                    goto cleanup;
+                }
+            } else {
+                printf("%d\n", errno);
+                status = -1;
+                fprintf(stderr, "Couldn't open %s: %s\n", options->tty, strerror(errno));
+                goto cleanup;
+            }
         }
         curses_fd = fileno(curses_stdout);
         // todo: write method to get the TERM value of another tty
@@ -2386,6 +2510,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         while not setting "linux" on a virtual console results in a messy output.
         */
         curses_term = "linux";
+        printf("Running on another terminal session...\n");
     }
 
     SCREEN *screen = newterm(curses_term, curses_stdout, curses_stdin);
@@ -2421,6 +2546,23 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
             nb_frames = (int64_t)((double) avfmt_ctx->duration / 1000000 * fps + 0.5);
         }
     double duration = floor((nb_frames-1) / fps) + fmod(nb_frames-1,  fps) / fps;
+    if (!options->no_audio) {
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+        if (SDL_GetAudioStreamQueued(stream) < (int)wav_data_len) {
+            SDL_PutAudioStreamData(stream, wav_data, wav_data_len);
+        }
+
+        SDL_ResumeAudioStreamDevice(stream);
+#else
+        if(SDL_QueueAudio(*stream, wav_data, wav_data_len) < 0) {
+            status = -1;
+            fprintf(stderr, "Audio could not be queued: %s\n", SDL_GetError());
+            goto main_cleanup;
+        }
+
+        SDL_PauseAudioDevice(*stream, 0);
+#endif
+    }
     while (av_read_frame(avfmt_ctx, video_pkt) >= 0) {
         if (ioctl(curses_fd, TIOCGWINSZ, &term_size) == -1) {
             status = -1;
@@ -2635,6 +2777,9 @@ cleanup:
     free(queued_err_msg);
     if (status < 0) {
         return 1;
+    }
+    if (status >= 128) {
+        return status;
     }
     return 0;
 }
