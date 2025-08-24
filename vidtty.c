@@ -808,69 +808,45 @@ ffmpeg_cleanup:
             if (errno == EACCES) {
                 printf("Need permission to write to \x1b[1m%s\x1b[0m\nRunning sudo...\n", options->tty);
                 uint64_t max_cb_size = snprintf(NULL, 0, "sudo chown %u %s", UINT32_MAX, options->tty);
-                char *ch_buffer = malloc(max_cb_size+1);
-                int32_t buffer_written = snprintf(ch_buffer, max_cb_size+1, "sudo chown %u %s", getuid(), options->tty);
+                char *chown_buffer = malloc(max_cb_size+1);
+                int32_t buffer_written = snprintf(chown_buffer, max_cb_size+1, "sudo chown %u %s", getuid(), options->tty);
                 if (buffer_written <= 0) {
                     status = -1;
                     fprintf(stderr, "Error concentrating chown command\n");
                     goto main_cleanup;
                 }
-                int32_t ch_status = system(ch_buffer);
-                free(ch_buffer);
-                int32_t ch_failed = WEXITSTATUS(ch_status);
-                if (WIFSIGNALED(ch_status)) {
-                    if (WTERMSIG(ch_status) == 2) {
+                int32_t chown_status = system(chown_buffer);
+                free(chown_buffer);
+                int32_t chown_failed = WEXITSTATUS(chown_status);
+                if (WIFSIGNALED(chown_status)) {
+                    if (WTERMSIG(chown_status) == 2) {
                         fprintf(stderr, "Sudo aborted by user\n");
                     } else {
                         fprintf(
                             stderr, "Sudo exited due to signal %d: %s\n", 
-                            WTERMSIG(ch_status), strsignal(WTERMSIG(ch_status)));
+                            WTERMSIG(chown_status), strsignal(WTERMSIG(chown_status)));
                     }
-                    status = 128+WTERMSIG(ch_status);
+                    status = 128+WTERMSIG(chown_status);
                     goto main_cleanup;
                 }
-                if (ch_failed) {
-                    fprintf(stderr, "Changing ownership of %s failed with exit code %d!\n", options->tty, ch_failed);
+                if (chown_failed) {
+                    fprintf(stderr, "Changing ownership of %s failed with exit code %d!\n", options->tty, chown_failed);
                     status = -1;
                     goto main_cleanup;
                 }
-                max_cb_size = snprintf(NULL, 0, "chmod 600 %s", options->tty);
-                ch_buffer = malloc(max_cb_size+1);
-                buffer_written = snprintf(ch_buffer, max_cb_size+1, "chmod 600 %s", options->tty);
-                if (buffer_written <= 0) {
-                    status = -1;
-                    fprintf(stderr, "Error concentrating chmod command\n");
-                    goto main_cleanup;
-                }
-                ch_status = system(ch_buffer);
-                free(ch_buffer);
-                ch_failed = WEXITSTATUS(ch_status);
-                if (WIFSIGNALED(ch_status)) {
-                    if (WTERMSIG(ch_status) == 2) {
-                        fprintf(stderr, "Sudo aborted by user\n");
-                    } else {
-                        fprintf(
-                            stderr, "Sudo exited due to signal %d: %s\n", 
-                            WTERMSIG(ch_status), strsignal(WTERMSIG(ch_status)));
-                    }
-                    status = 128+WTERMSIG(ch_status);
-                    goto main_cleanup;
-                }
-                if (ch_failed) {
-                    fprintf(stderr, "Changing permissions of %s failed with exit code %d!\n", options->tty, ch_failed);
+                if (chmod(options->tty, 0600)) {
+                    fprintf(stderr, "Couldn't change permissions of %s: %s\n", options->tty, strerror(errno));
                     status = -1;
                     goto main_cleanup;
                 }
                 curses_stdin = fopen(options->tty, "r+"); 
                 curses_stdout = fopen(options->tty, "w+");
                 if (!curses_stdin || !curses_stdout) {
-                    printf("%d\n", errno);
                     status = -1;
                     fprintf(stderr, "Couldn't open %s: %s\n", options->tty, strerror(errno));
                     goto main_cleanup;
                 }
             } else {
-                printf("%d\n", errno);
                 status = -1;
                 fprintf(stderr, "Couldn't open %s: %s\n", options->tty, strerror(errno));
                 goto main_cleanup;
@@ -2433,69 +2409,45 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
             if (errno == EACCES) {
                 printf("Need permission to write to \x1b[1m%s\x1b[0m\nRunning sudo...\n", options->tty);
                 uint64_t max_cb_size = snprintf(NULL, 0, "sudo chown %u %s", UINT32_MAX, options->tty);
-                char *ch_buffer = malloc(max_cb_size+1);
-                int32_t buffer_written = snprintf(ch_buffer, max_cb_size+1, "sudo chown %u %s", getuid(), options->tty);
+                char *chown_buffer = malloc(max_cb_size+1);
+                int32_t buffer_written = snprintf(chown_buffer, max_cb_size+1, "sudo chown %u %s", getuid(), options->tty);
                 if (buffer_written <= 0) {
                     status = -1;
                     fprintf(stderr, "Error concentrating chown command\n");
                     goto cleanup;
                 }
-                int32_t ch_status = system(ch_buffer);
-                free(ch_buffer);
-                int32_t ch_failed = WEXITSTATUS(ch_status);
-                if (WIFSIGNALED(ch_status)) {
-                    if (WTERMSIG(ch_status) == 2) {
+                int32_t chown_status = system(chown_buffer);
+                free(chown_buffer);
+                int32_t chown_failed = WEXITSTATUS(chown_status);
+                if (WIFSIGNALED(chown_status)) {
+                    if (WTERMSIG(chown_status) == 2) {
                         fprintf(stderr, "Sudo aborted by user\n");
                     } else {
                         fprintf(
                             stderr, "Sudo exited due to signal %d: %s\n", 
-                            WTERMSIG(ch_status), strsignal(WTERMSIG(ch_status)));
+                            WTERMSIG(chown_status), strsignal(WTERMSIG(chown_status)));
                     }
-                    status = 128+WTERMSIG(ch_status);
+                    status = 128+WTERMSIG(chown_status);
                     goto cleanup;
                 }
-                if (ch_failed) {
-                    fprintf(stderr, "Changing ownership of %s failed with exit code %d!\n", options->tty, ch_failed);
+                if (chown_failed) {
+                    fprintf(stderr, "Changing ownership of %s failed with exit code %d!\n", options->tty, chown_failed);
                     status = -1;
                     goto cleanup;
                 }
-                max_cb_size = snprintf(NULL, 0, "chmod 600 %s", options->tty);
-                ch_buffer = malloc(max_cb_size+1);
-                buffer_written = snprintf(ch_buffer, max_cb_size+1, "chmod 600 %s", options->tty);
-                if (buffer_written <= 0) {
-                    status = -1;
-                    fprintf(stderr, "Error concentrating chmod command\n");
-                    goto cleanup;
-                }
-                ch_status = system(ch_buffer);
-                free(ch_buffer);
-                ch_failed = WEXITSTATUS(ch_status);
-                if (WIFSIGNALED(ch_status)) {
-                    if (WTERMSIG(ch_status) == 2) {
-                        fprintf(stderr, "Sudo aborted by user\n");
-                    } else {
-                        fprintf(
-                            stderr, "Sudo exited due to signal %d: %s\n", 
-                            WTERMSIG(ch_status), strsignal(WTERMSIG(ch_status)));
-                    }
-                    status = 128+WTERMSIG(ch_status);
-                    goto cleanup;
-                }
-                if (ch_failed) {
-                    fprintf(stderr, "Changing permissions of %s failed with exit code %d!\n", options->tty, ch_failed);
+                if (chmod(options->tty, 0600)) {
+                    fprintf(stderr, "Couldn't change permissions of %s: %s\n", options->tty, strerror(errno));
                     status = -1;
                     goto cleanup;
                 }
                 curses_stdin = fopen(options->tty, "r+"); 
                 curses_stdout = fopen(options->tty, "w+");
                 if (!curses_stdin || !curses_stdout) {
-                    printf("%d\n", errno);
                     status = -1;
                     fprintf(stderr, "Couldn't open %s: %s\n", options->tty, strerror(errno));
                     goto cleanup;
                 }
             } else {
-                printf("%d\n", errno);
                 status = -1;
                 fprintf(stderr, "Couldn't open %s: %s\n", options->tty, strerror(errno));
                 goto cleanup;
