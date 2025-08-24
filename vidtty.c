@@ -898,6 +898,7 @@ ffmpeg_cleanup:
         goto main_cleanup;
     }
     pre_draw = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
+    uint64_t initial_draw = pre_draw;
     uint64_t frame_num = 0;
     if (vidtxt_info->audio_size > 0 && options->no_audio == 0) {
 #if SDL_VERSION_ATLEAST(3, 0, 0)
@@ -947,12 +948,14 @@ ffmpeg_cleanup:
             }
         }
         frame_num++;
+        uint64_t estimated_frame = vidtxt_info->fps*(pre_draw-initial_draw)/1000000 + 1;
+        int64_t sync = frame_num-estimated_frame;
         if (options->debug_mode) {
             char *prefix = malloc(curr_term_cols+1);
             double time_position = floor(frame_num / vidtxt_info->fps) + fmod(frame_num,  vidtxt_info->fps) / vidtxt_info->fps;
             int32_t prefix_size = snprintf(
                 prefix, curr_term_cols+1,
-                "[Frame: %lu, %02u:%02u:%06.3lf]", frame_num, 
+                "[Frame: (required,drawn,sync): (%lu,%lu,%ld), %02u:%02u:%06.3lf]", estimated_frame, frame_num, sync,
                 (uint32_t) floor(time_position / 3600), (uint32_t) floor(time_position / 60), fmod(time_position, 60)
             );
             char *suffix = malloc(curr_term_cols);
@@ -1024,7 +1027,15 @@ ffmpeg_cleanup:
         if (draw_time < interval * 1000000) {
             int32_t sleep_interval = (int32_t) (interval * 1000000 - draw_time);
             pre_draw = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 + sleep_interval;
-            usleep(sleep_interval);
+            if (sync > 0) {
+                sleep_interval+=(interval*1000000*sync);
+                if (sync > vidtxt_info->fps) {
+                    fprintf(stderr, "Syncing...");
+                }
+            }
+            if (sync >= 0 ) {
+                usleep(sleep_interval);
+            }
         } else {
             if (options->debug_mode && draw_time > interval) {
             }
@@ -2488,6 +2499,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         goto cleanup;
     }
     pre_draw = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
+    uint64_t initial_draw = pre_draw;
     video_pkt = av_packet_alloc();
     video_decoded = av_frame_alloc();
     video_converted = av_frame_alloc();
@@ -2588,12 +2600,14 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                 if ((int64_t) frame_count > nb_frames) {
                     nb_frames = frame_count;
                 }
+                uint64_t estimated_frame = fps*(pre_draw-initial_draw)/1000000 + 1;
+                int64_t sync = frame_count-estimated_frame;
                 if (options->debug_mode) {
                     char *prefix = malloc(term_size.ws_col+1);
                     double time_position = floor(frame_count / fps) + fmod(frame_count,  fps) / fps;
                     int32_t prefix_size = snprintf(
                         prefix, term_size.ws_col+1,
-                        "[Frame: %lu, %02u:%02u:%06.3lf]", frame_count, 
+                        "[Frame (required,drawn,sync): (%lu,%lu,%ld), %02u:%02u:%06.3lf]", estimated_frame, frame_count, sync, 
                         (uint32_t) floor(time_position / 3600), (uint32_t) floor(time_position / 60), fmod(time_position, 60)
                     );
                     char *suffix = malloc(term_size.ws_col);
@@ -2665,7 +2679,15 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                 if (draw_time < interval * 1000000) {
                     int32_t sleep_interval = (int32_t) (interval * 1000000 - draw_time);
                     pre_draw = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 + sleep_interval;
-                    usleep(sleep_interval);
+                    if (sync > 0) {
+                        sleep_interval+=(interval*1000000*sync);
+                        if (sync > fps) {
+                            fprintf(stderr, "Syncing...");
+                        }
+                    }
+                    if (sync >= 0 ) {
+                        usleep(sleep_interval);
+                    }
                 } else {
                     if (options->debug_mode && draw_time > interval) {
                         
