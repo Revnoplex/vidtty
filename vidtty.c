@@ -801,6 +801,7 @@ ffmpeg_cleanup:
     char *curses_term = getenv("TERM");
     FILE *curses_stdin = stdin;
     FILE *curses_stdout = stdout;
+    FILE *curses_stderr = stderr;
     if (options->tty) {
         curses_stdin = fopen(options->tty, "r+"); 
         curses_stdout = fopen(options->tty, "w+");
@@ -852,6 +853,7 @@ ffmpeg_cleanup:
                 goto main_cleanup;
             }
         }
+        curses_stderr = curses_stdout;
         curses_fd = fileno(curses_stdout);
         // todo: write method to get the TERM value of another tty
         /*
@@ -1030,7 +1032,7 @@ ffmpeg_cleanup:
             if (sync > 0) {
                 sleep_interval+=(interval*1000000*sync);
                 if (sync > vidtxt_info->fps) {
-                    fprintf(stderr, "Syncing...");
+                    fprintf(curses_stderr, "Syncing...");
                 }
             }
             if (sync >= 0 ) {
@@ -2413,6 +2415,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
     char *curses_term = getenv("TERM");
     FILE *curses_stdin = stdin;
     FILE *curses_stdout = stdout;
+    FILE *curses_stderr = stderr;
     if (options->tty) {
         curses_stdin = fopen(options->tty, "r+"); 
         curses_stdout = fopen(options->tty, "w+");
@@ -2464,6 +2467,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                 goto cleanup;
             }
         }
+        curses_stderr = curses_stdout;
         curses_fd = fileno(curses_stdout);
         // todo: write method to get the TERM value of another tty
         /*
@@ -2533,7 +2537,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
             int_str_asprintf(&queued_err_msg, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
             goto cleanup;
         }
-            if (term_size.ws_col < 2 || term_size.ws_col < 2) {
+        if (term_size.ws_col < 2 || term_size.ws_col < 2) {
             int_str_asprintf(&queued_err_msg, "Invalid terminal resolution! Must be 2x2 or greater. %d %s\n", 0, "Placeholder");
             return 1;
         }
@@ -2682,7 +2686,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                     if (sync > 0) {
                         sleep_interval+=(interval*1000000*sync);
                         if (sync > fps) {
-                            fprintf(stderr, "Syncing...");
+                            fprintf(curses_stderr, "Syncing...");
                         }
                     }
                     if (sync >= 0 ) {
