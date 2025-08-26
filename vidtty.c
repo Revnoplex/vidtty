@@ -1,3 +1,4 @@
+#include <bits/types.h>
 #include <libavutil/rational.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -12,6 +13,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <signal.h>
+#include <sys/wait.h>
 #include <libavutil/avutil.h>
 #include <libavutil/mem.h>
 #include <libavformat/avio.h>
@@ -808,16 +810,27 @@ ffmpeg_cleanup:
         if (!curses_stdin || !curses_stdout) {
             if (errno == EACCES) {
                 printf("Need permission to write to \x1b[1m%s\x1b[0m\nRunning sudo...\n", options->tty);
-                uint64_t max_cb_size = snprintf(NULL, 0, "sudo chown %u %s", UINT32_MAX, options->tty);
-                char *chown_buffer = malloc(max_cb_size+1);
-                int32_t buffer_written = snprintf(chown_buffer, max_cb_size+1, "sudo chown %u %s", getuid(), options->tty);
-                if (buffer_written <= 0) {
+                pid_t pid = fork();
+                if (pid < 0) {
+                    fprintf(stderr, "Error forking process: %s\n", strerror(errno));
                     status = -1;
-                    fprintf(stderr, "Error concentrating chown command\n");
                     goto main_cleanup;
                 }
-                int32_t chown_status = system(chown_buffer);
-                free(chown_buffer);
+                if (pid == 0) {
+                    char uid_buffer[21];
+                    snprintf(uid_buffer, sizeof(uid_buffer), "%lu", (uint64_t)getuid());
+                    char *argv[] = {
+                        "sudo", "chown", uid_buffer, options->tty, NULL
+                    };
+                    execvp("sudo", argv);
+                    fprintf(stderr, "Changing ownership of %s failed: %s\n", options->tty, strerror(errno));
+                    _exit(127);
+                }
+                int32_t chown_status;
+                if (waitpid(pid, &chown_status, 0) < 0) {
+                    fprintf(stderr, "Error waiting for sudo: %s\n", strerror(errno));
+                    goto main_cleanup;
+                }
                 int32_t chown_failed = WEXITSTATUS(chown_status);
                 if (WIFSIGNALED(chown_status)) {
                     if (WTERMSIG(chown_status) == 2) {
@@ -2422,16 +2435,27 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         if (!curses_stdin || !curses_stdout) {
             if (errno == EACCES) {
                 printf("Need permission to write to \x1b[1m%s\x1b[0m\nRunning sudo...\n", options->tty);
-                uint64_t max_cb_size = snprintf(NULL, 0, "sudo chown %u %s", UINT32_MAX, options->tty);
-                char *chown_buffer = malloc(max_cb_size+1);
-                int32_t buffer_written = snprintf(chown_buffer, max_cb_size+1, "sudo chown %u %s", getuid(), options->tty);
-                if (buffer_written <= 0) {
+                pid_t pid = fork();
+                if (pid < 0) {
+                    fprintf(stderr, "Error forking process: %s\n", strerror(errno));
                     status = -1;
-                    fprintf(stderr, "Error concentrating chown command\n");
                     goto cleanup;
                 }
-                int32_t chown_status = system(chown_buffer);
-                free(chown_buffer);
+                if (pid == 0) {
+                    char uid_buffer[21];
+                    snprintf(uid_buffer, sizeof(uid_buffer), "%lu", (uint64_t)getuid());
+                    char *argv[] = {
+                        "sudo", "chown", uid_buffer, options->tty, NULL
+                    };
+                    execvp("sudo", argv);
+                    fprintf(stderr, "Changing ownership of %s failed: %s\n", options->tty, strerror(errno));
+                    _exit(127);
+                }
+                int32_t chown_status;
+                if (waitpid(pid, &chown_status, 0) < 0) {
+                    fprintf(stderr, "Error waiting for sudo: %s\n", strerror(errno));
+                    goto cleanup;
+                }
                 int32_t chown_failed = WEXITSTATUS(chown_status);
                 if (WIFSIGNALED(chown_status)) {
                     if (WTERMSIG(chown_status) == 2) {
