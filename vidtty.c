@@ -879,14 +879,6 @@ ffmpeg_cleanup:
         printf("Running on another terminal session...\n");
     }
 
-    if (ioctl(curses_fd, TIOCGWINSZ, &term_size) == -1) {
-        status = -1;
-        fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
-        goto main_cleanup;
-    }
-
-    uint16_t curr_term_lines = term_size.ws_row;
-    uint16_t curr_term_cols = term_size.ws_col;
     size_t ch_read = 1;
 
     SCREEN *screen = newterm(curses_term, curses_stdout, curses_stdin);
@@ -933,6 +925,14 @@ ffmpeg_cleanup:
 #endif
     }
     while (ch_read) {
+        if (ioctl(curses_fd, TIOCGWINSZ, &term_size) == -1) {
+            status = -1;
+            fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+            goto main_cleanup;
+        }
+
+        uint16_t curr_term_lines = term_size.ws_row;
+        uint16_t curr_term_cols = term_size.ws_col;
         refresh();
 
         for (uint32_t line = 0; line < vidtxt_info->print_lines; line++) {
