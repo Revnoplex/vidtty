@@ -125,7 +125,7 @@ VIDTXTInfo *new_vidtxt_info(FILE *fp, char *filename) {
     VIDTXTInfo *vidtxt_info = malloc(sizeof(VIDTXTInfo));
 
     if (ftell(fp) != 0) {
-        fprintf(stderr, "File pointer not seeked to start\n");
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: File pointer not seeked to start\n");
         free(vidtxt_info);
         return NULL;
     }
@@ -137,21 +137,21 @@ VIDTXTInfo *new_vidtxt_info(FILE *fp, char *filename) {
 
     if (be64toh(sig_value) != 0x5649445458540000) {
         if (filename == NULL) {
-            fprintf(stderr, "The file is not vidtxt format!\n");
+            fprintf(stderr, "\x1b[1;31mError\x1b[0m: The file is not vidtxt format!\n");
         } else {
-            fprintf(stderr, "%s is not vidtxt format!\n", filename);
+            fprintf(stderr, "\x1b[1;31mError\x1b[0m: %s is not vidtxt format!\n", filename);
         }
         free(vidtxt_info);
         return NULL;
     }
 
     if (fseek(vidtxt_info->fp, VID_METADATA_START,0)) {
-        fprintf(stderr, "Error seeking to position %d: Seek error %d: %s\n", VID_METADATA_START, errno, strerror(errno));
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to seek to position %d: Seek error %d: %s\n", VID_METADATA_START, errno, strerror(errno));
         free(vidtxt_info);
         return NULL;
     }
     if (ftell(vidtxt_info->fp) != VID_METADATA_START) {
-        fprintf(stderr, "Unable to seek to position %d\n", VID_METADATA_START);
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Unable to seek to position %d\n", VID_METADATA_START);
         free(vidtxt_info);
         return NULL;
     }
@@ -164,7 +164,7 @@ VIDTXTInfo *new_vidtxt_info(FILE *fp, char *filename) {
     total_reads += fread(&vidtxt_info->audio_size, sizeof(vidtxt_info->audio_size), 1, vidtxt_info->fp);
 
     if (total_reads != 4) {
-        fprintf(stderr, "Error reading header\n");
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to read vidtxt header\n");
         free(vidtxt_info);
         return NULL;
     }
@@ -181,10 +181,10 @@ VIDTXTInfo *new_vidtxt_info(FILE *fp, char *filename) {
     if (new_fps >= 0 && 1/new_fps != INFINITY) {
         vidtxt_info->fps = new_fps;
     } else {
-        fprintf(stderr, "Warning: Error interpreting fps value in big endian. Trying in little endian...\n");
+        fprintf(stderr, "\x1b[1;33mWarning\x1b[0m: Error interpreting fps value in big endian. Trying in little endian...\n");
     }
     if (vidtxt_info->fps < 0) {
-        fprintf(stderr, "Error interpreting fps value. Possibly wrong endian value\n");
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to interpret fps value. Possibly wrong endian value\n");
         free(vidtxt_info);
         return NULL;
     }
@@ -192,16 +192,16 @@ VIDTXTInfo *new_vidtxt_info(FILE *fp, char *filename) {
     struct stat file_stat;
     if (fstat(fileno(vidtxt_info->fp), &file_stat)) {
         if (filename == NULL) {
-            fprintf(stderr, "Couldn't stat vidtxt file to get size: Stat error %d: %s\n", errno, strerror(errno));
+            fprintf(stderr, "\x1b[1;31mError\x1b[0m: Couldn't stat vidtxt file to get size: Stat error %d: %s\n", errno, strerror(errno));
         } else {
-            fprintf(stderr, "Couldn't stat %s to get size: Stat error %d: %s\n", filename, errno, strerror(errno));
+            fprintf(stderr, "\x1b[1;31mError\x1b[0m: Couldn't stat %s to get size: Stat error %d: %s\n", filename, errno, strerror(errno));
         }
         free(vidtxt_info);
         return NULL;
     }
     vidtxt_info->file_size = file_stat.st_size;
     if (vidtxt_info->columns <= 1 || vidtxt_info->lines <= 1) {
-        fprintf(stderr, "Invalid vidtxt resolution! Must be greater than 1x1\n");
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Invalid vidtxt resolution! Must be greater than 1x1\n");
         free(vidtxt_info);
         return NULL;
     }
@@ -211,12 +211,12 @@ VIDTXTInfo *new_vidtxt_info(FILE *fp, char *filename) {
     vidtxt_info->duration = floor(vidtxt_info->total_frames / vidtxt_info->fps) + fmod(vidtxt_info->total_frames,  vidtxt_info->fps) / vidtxt_info->fps;
 
     if (fseek(vidtxt_info->fp, VIDTXT_HEADER_SIZE,0)) {
-        fprintf(stderr, "Error seeking to position %d: Seek error %d: %s\n", VIDTXT_HEADER_SIZE, errno, strerror(errno));
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to seek to position %d: Seek error %d: %s\n", VIDTXT_HEADER_SIZE, errno, strerror(errno));
         free(vidtxt_info);
         return NULL;
     }
     if (ftell(vidtxt_info->fp) != VIDTXT_HEADER_SIZE) {
-        fprintf(stderr, "Unable to seek to position %d\n", VIDTXT_HEADER_SIZE);
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Unable to seek to position %d\n", VIDTXT_HEADER_SIZE);
         free(vidtxt_info);
         return NULL;
     }
@@ -228,7 +228,7 @@ VIDTXTInfo *open_vidtxt(char *filename) {
     FILE *fp = fopen(filename, "rb");
 
     if (fp == NULL) {
-        fprintf(stderr, "Couldn't open %s: %s\n", filename, strerror(errno));
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Couldn't open %s: %s\n", filename, strerror(errno));
         return NULL;  
     }
 
@@ -363,7 +363,7 @@ int32_t avio_custom_read(void *opaque, uint8_t *buffer, int buffer_size) {
     */
     int32_t current_position = ftell(vidtxt_info->fp)-VIDTXT_HEADER_SIZE;
     if (current_position < 0) {
-        fprintf(stderr, "Got unexpected negative value when comparing audio_size!\n");
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Got unexpected negative value when comparing audio_size!\n");
         return AVERROR_UNKNOWN;
     }
     if ((uint64_t)current_position+buffer_size > vidtxt_info->audio_size) {
@@ -380,6 +380,7 @@ int32_t avio_custom_read(void *opaque, uint8_t *buffer, int buffer_size) {
 int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
     VIDTXTInfo *vidtxt_info = open_vidtxt(filename);
     if (vidtxt_info == NULL) {
+        fprintf(stderr,"\x1b[1;31mFatal\x1b[0m: Couldn't initialise vidtxt file.\n");
         return 1;
     }
     
@@ -419,25 +420,25 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
         avio_ctx = avio_alloc_context(avio_buffer, AVIO_BUFFER_SIZE, 0, vidtxt_info, avio_custom_read, NULL, NULL);
         if (avio_ctx == NULL) {
             status = -1;
-            fprintf(stderr,"Error allocating avio context\n");
+            fprintf(stderr,"\x1b[1;31mFatal\x1b[0m: Failed to allocating avio context\n");
             goto ffmpeg_cleanup;
         }
 
         avfmt_ctx = avformat_alloc_context();
         avfmt_ctx->pb = avio_ctx;
         if ((status = avformat_open_input(&avfmt_ctx, NULL, NULL, NULL)) < 0) {
-            fprintf(stderr, "Could not read audio data: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not read audio data: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
         }
         if ((status = avformat_find_stream_info(avfmt_ctx, NULL)) < 0) {
-            fprintf(stderr, "Could not find stream information: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not find stream information: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
         }
 
         int32_t stream_idx = av_find_best_stream(avfmt_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0);
         if (stream_idx < 0) {
             status = stream_idx;
-            fprintf(stderr, "Could not find audio stream: FFmpeg error 0x%02x: %s\n", stream_idx, av_err2str(stream_idx));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not find audio stream: FFmpeg error 0x%02x: %s\n", stream_idx, av_err2str(stream_idx));
             goto ffmpeg_cleanup;
         }
 
@@ -448,12 +449,12 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
         avcodec_open2(decoder_ctx, decoder, NULL);
 
         if ((status = avformat_alloc_output_context2(&out_fmt_ctx, NULL, "wav", NULL)) < 0) {
-            fprintf(stderr, "Could not create output format context: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not create output format context: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
         }
 
         if ((status = avio_open_dyn_buf(&out_avio_ctx)) < 0) {
-            fprintf(stderr, "Could not create output buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not create output buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
         }
 
@@ -467,7 +468,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
         encoder_ctx->time_base = (AVRational){1, decoder_ctx->sample_rate};
 #if LIBAVUTIL_VERSION_MAJOR >= 57
         if ((status = av_channel_layout_copy(&encoder_ctx->ch_layout, &decoder_ctx->ch_layout)) < 0) {
-            fprintf(stderr, "Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
         }
 #else 
@@ -475,15 +476,15 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
         encoder_ctx->channels = decoder_ctx->channels;
 #endif
         if ((status = avcodec_open2(encoder_ctx, encoder, NULL)) < 0) {
-            fprintf(stderr, "Could not open encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not open encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
         }
         if ((status = avcodec_parameters_from_context(output_audio_stream->codecpar, encoder_ctx)) < 0) {
-            fprintf(stderr, "Could not transfer codec paramaters: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not transfer codec paramaters: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
         }
         if ((status = avformat_write_header(out_fmt_ctx, NULL)) < 0) {
-            fprintf(stderr, "Could not write header: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not write header: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
         }
 
@@ -504,11 +505,11 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
         status = (swr_ctx == NULL) ? AVERROR(ENOMEM) : 0;
 #endif
         if (status < 0) {
-            fprintf(stderr, "Failed to allocate SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to allocate SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
         }
         if ((status = swr_init(swr_ctx)) < 0) {
-            fprintf(stderr, "Failed to initialize SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to initialize SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
         }
 
@@ -520,7 +521,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
 
 #if LIBAVUTIL_VERSION_MAJOR >= 57
         if ((status = av_channel_layout_copy(&converted->ch_layout, &encoder_ctx->ch_layout)) < 0) {
-            fprintf(stderr, "Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
         }
 #else 
@@ -529,7 +530,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
 #endif
         if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
             status = -1;
-            fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
             goto ffmpeg_cleanup;
         }
         pre_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
@@ -539,7 +540,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
         uint64_t frame_count = 0;
         int64_t nb_frames = input_audio_stream->nb_frames;
         if (nb_frames <= 0) {
-            fprintf(stderr, "Warning: No frame count metadata! Estimating from bitrate, sample rate and frame size (this may be inaccurate)...\n");
+            fprintf(stderr, "\x1b[1;33mWarning\x1b[0m: No frame count metadata! Estimating from bitrate, sample rate and frame size (this may be inaccurate)...\n");
             double total_samples = ((vidtxt_info->audio_size * 8.0 / input_audio_stream->codecpar->bit_rate) * input_audio_stream->codecpar->sample_rate);
             nb_frames = floor(total_samples / input_audio_stream->codecpar->frame_size)-1;
         }
@@ -552,7 +553,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
             }
 
             if ((status = avcodec_send_packet(decoder_ctx, pkt)) < 0) {
-                fprintf(stderr, "Warning: Error sending packet to decoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                fprintf(stderr, "\x1b[1;33mError\x1b[0m: Failed sending packet to decoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                 break;
             }
             while ((status = avcodec_receive_frame(decoder_ctx, decoded)) == 0) {
@@ -564,7 +565,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
 
 #if LIBAVUTIL_VERSION_MAJOR >= 57
                 if ((status = av_channel_layout_copy(&converted->ch_layout, &encoder_ctx->ch_layout)) < 0) {
-                    fprintf(stderr, "Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     goto ffmpeg_cleanup;
                 }
 #else 
@@ -573,7 +574,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
 #endif
                 
                 if ((status = av_frame_get_buffer(converted, 0)) < 0) {
-                    fprintf(stderr, "Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     goto ffmpeg_cleanup;
                 }
 
@@ -584,7 +585,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
 
                 if (out_samples < 0) {
                     status = out_samples;
-                    fprintf(stderr, "Error during resampling: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error during resampling: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     goto ffmpeg_cleanup;
                 }
 
@@ -592,14 +593,14 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
                 next_pts += out_samples;
 
                 if ((status = avcodec_send_frame(encoder_ctx, converted)) < 0) {
-                    fprintf(stderr, "Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     goto ffmpeg_cleanup;
                 }
 
                 while ((status = avcodec_receive_packet(encoder_ctx, pkt)) == 0) {
                     pkt->stream_index = output_audio_stream->index;
                     if ((status = av_interleaved_write_frame(out_fmt_ctx, pkt)) < 0) {
-                        fprintf(stderr, "Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                         goto ffmpeg_cleanup;
                     }
                     av_packet_unref(pkt);
@@ -616,7 +617,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
                 }
             if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
                 status = -1;
-                fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+                fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
                 goto ffmpeg_cleanup;
             }
             uint64_t frame_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 - pre_duration;
@@ -626,7 +627,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
             double time_left = (nb_frames-frame_count) / (numerator/denominator);
             if (frame_count % 64 == 0) {
                 if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
-                    fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
                     goto ffmpeg_cleanup;
                 }
                 char *prefix = malloc(term_size.ws_col+1);
@@ -663,7 +664,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
             denominator++;
         }
         if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
-            fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
             goto ffmpeg_cleanup;
         }
         char *prefix = malloc(term_size.ws_col+9);
@@ -690,7 +691,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
         free(prefix);
 
         if ((status = av_write_trailer(out_fmt_ctx)) < 0) {
-            fprintf(stderr, "Error writing trailer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error writing trailer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
         }
 ffmpeg_cleanup:
@@ -722,14 +723,10 @@ ffmpeg_cleanup:
         
 #if SDL_VERSION_ATLEAST(3, 0, 0)
         if (!SDL_SetAppMetadata(PROGRAM_NAME, VERSION, PROGRAM_NAME)) {
-            status = -1;
-            fprintf(stderr, "Error setting mixer metadata: %s\n", SDL_GetError());
-            goto main_cleanup;
+            fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to set mixer metadata: %s\n", SDL_GetError());
         }
         if (!SDL_SetAppMetadataProperty(SDL_PROP_APP_METADATA_TYPE_STRING, "mediaplayer")) {
-            status = -1;
-            fprintf(stderr, "Error setting mixer metadata: %s\n", SDL_GetError());
-            goto main_cleanup;
+            fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to set mixer metadata: %s\n", SDL_GetError());
         }
 
 #endif
@@ -746,7 +743,7 @@ ffmpeg_cleanup:
         if (SDL_Init(SDL_INIT_AUDIO) < 0 ) {
 #endif
             status = -1;
-            fprintf(stderr, "SDL_Init Error: %s\n", SDL_GetError());
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: SDL_Init Error: %s\n", SDL_GetError());
             goto main_cleanup;
         }
         
@@ -766,7 +763,7 @@ ffmpeg_cleanup:
 #endif
         if (!load_result) {
             status = -1;
-            fprintf(stderr, "Couldn't load .wav file: %s\n", SDL_GetError());
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't load .wav file: %s\n", SDL_GetError());
             goto main_cleanup;
         }
 
@@ -781,19 +778,19 @@ ffmpeg_cleanup:
 #endif
         if (!stream) {
             status = -1;
-            fprintf(stderr, "Couldn't create audio stream: %s\n", SDL_GetError());
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't create audio stream: %s\n", SDL_GetError());
             goto main_cleanup;
         }
     }
 
     if (fseek(vidtxt_info->fp, VIDTXT_HEADER_SIZE + vidtxt_info->audio_size, 0)) {
         status = -1;
-        fprintf(stderr, "Error seeking to position %lu: Seek error %d: %s\n", VIDTXT_HEADER_SIZE + vidtxt_info->audio_size, errno, strerror(errno));
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error seeking to position %lu: Seek error %d: %s\n", VIDTXT_HEADER_SIZE + vidtxt_info->audio_size, errno, strerror(errno));
         goto main_cleanup;
     }
     if ((uint64_t) ftell(vidtxt_info->fp) != VIDTXT_HEADER_SIZE + vidtxt_info->audio_size) {
         status = -1;
-        fprintf(stderr, "Unable to seek to position %lu\n", VIDTXT_HEADER_SIZE + vidtxt_info->audio_size);
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Unable to seek to position %lu\n", VIDTXT_HEADER_SIZE + vidtxt_info->audio_size);
         goto main_cleanup;
     }
     
@@ -812,7 +809,7 @@ ffmpeg_cleanup:
                 printf("Need permission to write to \x1b[1m%s\x1b[0m\nRunning sudo...\n", options->tty);
                 pid_t pid = fork();
                 if (pid < 0) {
-                    fprintf(stderr, "Error forking process: %s\n", strerror(errno));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error forking process: %s\n", strerror(errno));
                     status = -1;
                     goto main_cleanup;
                 }
@@ -823,33 +820,33 @@ ffmpeg_cleanup:
                         "sudo", "chown", uid_buffer, options->tty, NULL
                     };
                     execvp("sudo", argv);
-                    fprintf(stderr, "Changing ownership of %s failed: %s\n", options->tty, strerror(errno));
+                    fprintf(stderr, "\x1b[1;31mError\x1b[0m: Changing ownership of %s failed: %s\n", options->tty, strerror(errno));
                     _exit(127);
                 }
                 int32_t chown_status;
                 if (waitpid(pid, &chown_status, 0) < 0) {
-                    fprintf(stderr, "Error waiting for sudo: %s\n", strerror(errno));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error waiting for sudo: %s\n", strerror(errno));
                     goto main_cleanup;
                 }
                 int32_t chown_failed = WEXITSTATUS(chown_status);
                 if (WIFSIGNALED(chown_status)) {
                     if (WTERMSIG(chown_status) == 2) {
-                        fprintf(stderr, "Sudo aborted by user\n");
+                        fprintf(stderr, "\x1b[1;33mStopping\x1b[0m: Sudo aborted by user\n");
                     } else {
                         fprintf(
-                            stderr, "Sudo exited due to signal %d: %s\n", 
+                            stderr, "\x1b[1;33mStopping\x1b[0m: Sudo exited due to signal %d: %s\n", 
                             WTERMSIG(chown_status), strsignal(WTERMSIG(chown_status)));
                     }
                     status = 128+WTERMSIG(chown_status);
                     goto main_cleanup;
                 }
                 if (chown_failed) {
-                    fprintf(stderr, "Changing ownership of %s failed with exit code %d!\n", options->tty, chown_failed);
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Changing ownership of %s failed with exit code %d!\n", options->tty, chown_failed);
                     status = -1;
                     goto main_cleanup;
                 }
                 if (chmod(options->tty, 0600)) {
-                    fprintf(stderr, "Couldn't change permissions of %s: %s\n", options->tty, strerror(errno));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't change permissions of %s: %s\n", options->tty, strerror(errno));
                     status = -1;
                     goto main_cleanup;
                 }
@@ -857,12 +854,12 @@ ffmpeg_cleanup:
                 curses_stdout = fopen(options->tty, "w+");
                 if (!curses_stdin || !curses_stdout) {
                     status = -1;
-                    fprintf(stderr, "Couldn't open %s: %s\n", options->tty, strerror(errno));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't open %s: %s\n", options->tty, strerror(errno));
                     goto main_cleanup;
                 }
             } else {
                 status = -1;
-                fprintf(stderr, "Couldn't open %s: %s\n", options->tty, strerror(errno));
+                fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't open %s: %s\n", options->tty, strerror(errno));
                 goto main_cleanup;
             }
         }
@@ -884,7 +881,7 @@ ffmpeg_cleanup:
     SCREEN *screen = newterm(curses_term, curses_stdout, curses_stdin);
     if (screen == NULL) {
         status = -1;
-        fprintf(stderr, "Error opening screen: errno %d: %s", errno, strerror(errno));
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error opening screen: errno %d: %s", errno, strerror(errno));
         goto main_cleanup;
     }
     noecho();
@@ -901,7 +898,7 @@ ffmpeg_cleanup:
 
     if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
         status = -1;
-        int_str_asprintf(&queued_err_msg, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+        int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
         goto main_cleanup;
     }
     pre_draw = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
@@ -917,7 +914,7 @@ ffmpeg_cleanup:
 #else
         if(SDL_QueueAudio(*stream, wav_data, wav_data_len) < 0) {
             status = -1;
-            fprintf(stderr, "Audio could not be queued: %s\n", SDL_GetError());
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Audio could not be queued: %s\n", SDL_GetError());
             goto main_cleanup;
         }
 
@@ -927,7 +924,7 @@ ffmpeg_cleanup:
     while (ch_read) {
         if (ioctl(curses_fd, TIOCGWINSZ, &term_size) == -1) {
             status = -1;
-            fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
             goto main_cleanup;
         }
 
@@ -1030,12 +1027,12 @@ ffmpeg_cleanup:
         }
         if (draw_errors >= DRAW_ERROR_TOLERANCE) {
             status = -1;
-            int_str_asprintf(&queued_err_msg, "Too many draw errors: errno %d: %s. Stopping...\n", errno, strerror(errno));
+            int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Too many draw errors: errno %d: %s. Stopping...\n", errno, strerror(errno));
             goto main_cleanup;
         }
         if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
             status = -1;
-            int_str_asprintf(&queued_err_msg, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+            int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
             goto main_cleanup;
         }
         uint64_t draw_time = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 - pre_draw;
@@ -1091,6 +1088,7 @@ int32_t vidtxt_info(char *filename, VIDTTYOptions *options) {
     (void)(options);
     VIDTXTInfo *vidtxt_info = open_vidtxt(filename);
     if (vidtxt_info == NULL) {
+        fprintf(stderr,"\x1b[1;31mFatal\x1b[0m: Couldn't initialise vidtxt file.\n");
         return 1;
     }
 
@@ -1183,7 +1181,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
     }
 
     if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
-        fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
         free(output_filename);
         return 1;
     }
@@ -1204,7 +1202,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
     output_fp = fopen(output_filename, "wb");
 
     if (output_fp == NULL) {
-        fprintf(stderr, "Couldn't open %s: %s\n", output_filename, strerror(errno));
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't open %s: %s\n", output_filename, strerror(errno));
         free(output_filename);
         return 1;  
     }
@@ -1218,18 +1216,18 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
 
     avfmt_ctx = avformat_alloc_context();
     if ((status = avformat_open_input(&avfmt_ctx, filename, NULL, NULL)) < 0) {
-        fprintf(stderr, "Could not read video file: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not read video file: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
         goto cleanup;
     }
     if ((status = avformat_find_stream_info(avfmt_ctx, NULL)) < 0) {
-        fprintf(stderr, "Could not find stream information: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not find stream information: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
         goto cleanup;
     }
 
     int32_t video_idx = av_find_best_stream(avfmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
     if (video_idx < 0) {
         status = video_idx;
-        fprintf(stderr, "Could not find video stream: FFmpeg error 0x%02x: %s\n", video_idx, av_err2str(video_idx));
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not find video stream: FFmpeg error 0x%02x: %s\n", video_idx, av_err2str(video_idx));
         goto cleanup;
     }
 
@@ -1238,7 +1236,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
     AVRational r_frame_rate = video_stream->r_frame_rate;
     if (r_frame_rate.num <= 0 || r_frame_rate.den <= 0) {
         status = -1;
-        fprintf(stderr, "Error getting frame rate!\n");
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error getting frame rate!\n");
         goto cleanup;
     }
     double fps = av_q2d(r_frame_rate);
@@ -1270,7 +1268,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
         avcodec_open2(ad_ctx, decoder, NULL);
 
         if ((status = avformat_alloc_output_context2(&out_fmt_ctx, NULL, "mp3", NULL)) < 0) {
-            fprintf(stderr, "Could not create output format context: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not create output format context: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
 
@@ -1293,7 +1291,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             av_channel_layout_copy(&((AVCodecContext *)ad_ctx)->ch_layout, &tmp);
         }
         if ((status = av_channel_layout_copy(&encoder_ctx->ch_layout, &ad_ctx->ch_layout)) < 0) {
-            fprintf(stderr, "Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
 #else 
@@ -1307,24 +1305,24 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
         encoder_ctx->time_base = (AVRational){1, ad_ctx->sample_rate};
 
         if ((status = avcodec_open2(encoder_ctx, encoder, NULL)) < 0) {
-            fprintf(stderr, "Could not open encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not open encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
         if ((status = avcodec_parameters_from_context(output_audio_stream->codecpar, encoder_ctx)) < 0) {
-            fprintf(stderr, "Could not transfer codec paramaters: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not transfer codec paramaters: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
         output_audio_stream->time_base = encoder_ctx->time_base;
 
         if (!(out_fmt_ctx->oformat->flags & AVFMT_NOFILE)) {
             if ((status = avio_open_dyn_buf(&out_fmt_ctx->pb)) < 0) {
-                fprintf(stderr, "Could not create output buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not create output buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                 goto cleanup;
             }
         }
     
         if ((status = avformat_write_header(out_fmt_ctx, NULL)) < 0) {
-            fprintf(stderr, "Could not write header: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not write header: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
 
@@ -1352,11 +1350,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
         status = (swr_ctx == NULL) ? AVERROR(ENOMEM) : 0;
 #endif
         if (status < 0) {
-            fprintf(stderr, "Failed to allocate SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to allocate SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
         if ((status = swr_init(swr_ctx)) < 0) {
-            fprintf(stderr, "Failed to initialize SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to initialize SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
 
@@ -1379,7 +1377,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
         // --- Demux/Decode/Resample/Buffer ---
         if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
             status = -1;
-            fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
             goto cleanup;
         }
         pre_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
@@ -1389,7 +1387,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
         int64_t nb_frames = audio_stream->nb_frames;
         if (nb_frames <= 0) {
             int64_t decoder_frames = (int64_t)((double) avfmt_ctx->duration / 1000000 * audio_stream->codecpar->sample_rate + 0.5);
-            fprintf(stderr, "Warning: No frame count metadata! Estimating from sample rate and frame size (this may be inaccurate)...\n");
+            fprintf(stderr, "\x1b[1;33mWarning\x1b[0m: No frame count metadata! Estimating from sample rate and frame size (this may be inaccurate)...\n");
             nb_frames = (decoder_frames + encoder_ctx->frame_size - 1) / encoder_ctx->frame_size;
         }
         printf("Writing Audio Frames...\r");
@@ -1399,7 +1397,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
 
             if ((status = avcodec_send_packet(ad_ctx, audio_pkt)) < 0) {
                 av_packet_unref(audio_pkt);
-                fprintf(stderr, "Error sending packet to decoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error sending packet to decoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                 goto cleanup;
             }
             av_packet_unref(audio_pkt);
@@ -1424,7 +1422,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                             ,
                             dst_nb_samples, encoder_ctx->sample_fmt, 0)) < 0
                     ) {
-                        fprintf(stderr, "Error allocating array and samples: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error allocating array and samples: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                         goto cleanup;
                     }
                     max_dst_nb_samples = dst_nb_samples;
@@ -1435,11 +1433,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                                             (const uint8_t **)audio_decoded->data, audio_decoded->nb_samples);
                 if (converted < 0) {
                     status = converted;
-                    fprintf(stderr, "Error during resampling: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error during resampling: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     goto cleanup;
                 }
                 if ((status = av_audio_fifo_write(fifo, (void **)resampled_data, converted)) < 0) {
-                    fprintf(stderr, "Error writing to audio fifo: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error writing to audio fifo: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     goto cleanup;
                 }
 
@@ -1448,7 +1446,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                     AVFrame *audio_converted = av_frame_alloc();
                     if (!audio_converted) { 
                         status = AVERROR(ENOMEM); 
-                        fprintf(stderr, "Error allocating conversion frames: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error allocating conversion frames: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                         goto cleanup; 
                     }
                     audio_converted->nb_samples  = enc_frame_size;
@@ -1461,13 +1459,13 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                     audio_converted->channels = encoder_ctx->channels;
 #endif
                     if ((status = av_frame_get_buffer(audio_converted, 0)) < 0) {
-                        fprintf(stderr, "Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                         av_frame_free(&audio_converted);
                         goto cleanup;
                     }
 
                     if ((status = av_audio_fifo_read(fifo, (void **)audio_converted->data, enc_frame_size)) < 0) { 
-                        fprintf(stderr, "Error reading from audio fifo: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error reading from audio fifo: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                         av_frame_free(&audio_converted); 
                         goto cleanup; 
                     }
@@ -1476,7 +1474,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                     audio_converted->pts = samples_pts;
                     samples_pts += enc_frame_size;
                     if ((status = avcodec_send_frame(encoder_ctx, audio_converted)) < 0) {
-                        fprintf(stderr, "Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                         av_frame_free(&audio_converted);
                         goto cleanup;
                     }
@@ -1485,14 +1483,14 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                     AVPacket *opkt = av_packet_alloc();
                     if (!opkt) { 
                         status = AVERROR(ENOMEM); 
-                        fprintf(stderr, "Error allocating pkt: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error allocating pkt: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                         goto cleanup; 
                     }
                     while ((status = avcodec_receive_packet(encoder_ctx, opkt)) >= 0) {
                         opkt->stream_index = output_audio_stream->index;
                         av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
                         if ((status = av_interleaved_write_frame(out_fmt_ctx, opkt)) < 0) {
-                            fprintf(stderr, "Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                             av_packet_free(&opkt);
                             goto cleanup;
                         }
@@ -1511,7 +1509,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             }
             if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
                 status = -1;
-                fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+                fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
                 goto cleanup;
             }
             uint64_t frame_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 - pre_duration;
@@ -1521,7 +1519,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             double time_left = (nb_frames-frame_count) / (numerator/denominator);
             if (frame_count % 64 == 0) {
                 if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
-                    fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
                     goto cleanup;
                 }
                 char *prefix = malloc(term_size.ws_col+1);
@@ -1559,13 +1557,13 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
         }
         if (status == AVERROR_EOF) {status = 0;}
         if (status < 0) {
-            fprintf(stderr, "Error converting frames: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error converting frames: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
 
         // Flush decoder
         if ((status = avcodec_send_packet(ad_ctx, NULL)) < 0) {
-            fprintf(stderr, "Warning: Error sending packet to decoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m:  Error sending packet to decoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
         while ((status = avcodec_receive_frame(ad_ctx, audio_decoded)) >= 0) {
@@ -1587,7 +1585,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                         ,
                         dst_nb_samples, encoder_ctx->sample_fmt, 0)) < 0
                     ) {
-                    fprintf(stderr, "Error allocating array and samples: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error allocating array and samples: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     goto cleanup;
 
                 }
@@ -1598,7 +1596,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                                         (const uint8_t **)audio_decoded->data, audio_decoded->nb_samples);
             if (converted < 0) { status = converted; goto cleanup; }
             if ((status = av_audio_fifo_write(fifo, (void **)resampled_data, converted)) < 0) {
-                fprintf(stderr, "Error writing to audio fifo: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error writing to audio fifo: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                 goto cleanup;
             }
             av_frame_unref(audio_decoded);
@@ -1617,13 +1615,13 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 audio_converted->channels = encoder_ctx->channels;
 #endif
                 if ((status = av_frame_get_buffer(audio_converted, 0)) < 0) {
-                    fprintf(stderr, "Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     goto cleanup;
                 }
                 if ((status = av_audio_fifo_read(fifo, (void **)audio_converted->data, enc_frame_size)) < 0) { av_frame_free(&audio_converted); goto cleanup; }
                 audio_converted->pts = samples_pts; samples_pts += enc_frame_size;
                 if ((status = avcodec_send_frame(encoder_ctx, audio_converted)) < 0) {
-                    fprintf(stderr, "Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     av_frame_free(&audio_converted);
                     goto cleanup;
                 }
@@ -1635,7 +1633,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                     opkt->stream_index = output_audio_stream->index;
                     av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
                     if ((status = av_interleaved_write_frame(out_fmt_ctx, opkt)) < 0) {
-                        fprintf(stderr, "Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                         av_packet_free(&opkt);
                         goto cleanup;
                     }
@@ -1679,13 +1677,13 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 audio_converted->channels = encoder_ctx->channels;
 #endif
                 if ((status = av_frame_get_buffer(audio_converted, 0)) < 0) {
-                    fprintf(stderr, "Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     goto cleanup;
                 }
                 if ((status = av_audio_fifo_read(fifo, (void **)audio_converted->data, enc_frame_size)) < 0) { av_frame_free(&audio_converted); goto cleanup; }
                 audio_converted->pts = samples_pts; samples_pts += enc_frame_size;
                 if ((status = avcodec_send_frame(encoder_ctx, audio_converted)) < 0) {
-                    fprintf(stderr, "Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     av_frame_free(&audio_converted);
                     goto cleanup;
                 }
@@ -1697,7 +1695,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                     opkt->stream_index = output_audio_stream->index;
                     av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
                     if ((status = av_interleaved_write_frame(out_fmt_ctx, opkt)) < 0) {
-                        fprintf(stderr, "Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                         av_packet_free(&opkt);
                         goto cleanup;
                     }
@@ -1756,13 +1754,13 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                     audio_converted->channels = encoder_ctx->channels;
 #endif
                     if ((status = av_frame_get_buffer(audio_converted, 0)) < 0) {
-                        fprintf(stderr, "Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                         goto cleanup;
                     }
                     if ((status = av_audio_fifo_read(fifo, (void **)audio_converted->data, enc_frame_size)) < 0) { av_frame_free(&audio_converted); goto cleanup; }
                     audio_converted->pts = samples_pts; samples_pts += enc_frame_size;
                     if ((status = avcodec_send_frame(encoder_ctx, audio_converted)) < 0) {
-                        fprintf(stderr, "Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                         av_frame_free(&audio_converted);
                         goto cleanup;
                     }
@@ -1774,7 +1772,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                         opkt->stream_index = output_audio_stream->index;
                         av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
                         if ((status = av_interleaved_write_frame(out_fmt_ctx, opkt)) < 0) {
-                            fprintf(stderr, "Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                             av_packet_free(&opkt);
                             goto cleanup;
                         }
@@ -1788,7 +1786,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
 
         // Flush encoder
         if ((status = avcodec_send_frame(encoder_ctx, NULL)) < 0) {
-                        fprintf(stderr, "Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
         {
@@ -1798,7 +1796,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 opkt->stream_index = output_audio_stream->index;
                 av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
                 if ((status = av_interleaved_write_frame(out_fmt_ctx, opkt)) < 0) {
-                    fprintf(stderr, "Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     av_packet_free(&opkt);
                     goto cleanup;
                 }
@@ -1808,7 +1806,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             if (status == AVERROR(EAGAIN) || status == AVERROR_EOF) status = 0;
         }
         if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
-            fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
             goto cleanup;
         }
         char *prefix = malloc(term_size.ws_col+9);
@@ -1835,7 +1833,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
         free(prefix);
 
         if ((status = av_write_trailer(out_fmt_ctx)) < 0) {
-            fprintf(stderr, "Error writing trailer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error writing trailer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
 
@@ -1847,7 +1845,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
 
     for (int32_t idx = 0; idx < 32; idx++) {
         if ((status = fputc('\0', output_fp)) < 0) {
-            fprintf(stderr, "Error writing null byte %d to header: fputc error %d: %s\n", idx, errno, strerror(errno));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error writing null byte %d to header: fputc error %d: %s\n", idx, errno, strerror(errno));
             goto cleanup;
         }
     }
@@ -1867,7 +1865,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
         SWS_BILINEAR, NULL, NULL, NULL);
 
     if (!sws_ctx) {
-        fprintf(stderr, "Failed to create sws context!\n");
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to create sws context!\n");
         status = AVERROR(EINVAL);
         goto cleanup;
     }
@@ -1890,7 +1888,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
     av_seek_frame(avfmt_ctx, -1, 0, AVSEEK_FLAG_BACKWARD);
     if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
         status = -1;
-        fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
         goto cleanup;
     }
     pre_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
@@ -1898,13 +1896,13 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
     denominator = 1;
     int64_t nb_frames = video_stream->nb_frames;
     if (nb_frames <= 0) {
-        fprintf(stderr, "Warning: No frame count metadata! Estimating from duration and fps...\n");
+        fprintf(stderr, "\x1b[1;33mWarning\x1b[0m: No frame count metadata! Estimating from duration and fps...\n");
         nb_frames = (int64_t)((double) avfmt_ctx->duration / 1000000 * fps + 0.5);
     }
     while (av_read_frame(avfmt_ctx, video_pkt) >= 0) {
         if (video_pkt->stream_index == video_idx) {
             if ((loop_status = avcodec_send_packet(vd_ctx, video_pkt)) < 0) {
-                fprintf(stderr, "Failed to send packet: %s\n", av_err2str(status));
+                fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to send packet: %s\n", av_err2str(status));
                 break;
             }
 
@@ -1917,12 +1915,12 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                     uint8_t gradient = 0.299 * rgb_buffer[idx] + 0.587 * rgb_buffer[idx+1] + 0.114 * rgb_buffer[idx+2];
                     uint64_t gradient_idx = (gradient * (ascii_size - 1)) / 255;
                     if (gradient_idx > ascii_size) {
-                        fprintf(stderr, "Fatal: index greater than gradient list. Aborting to prevent oob array access...");
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: index greater than gradient list. Aborting to prevent segfault...");
                         status = -1;
                         goto cleanup;
                     }
                     if (ascii_fb_size >= buffer_size / 3) {
-                        fprintf(stderr, "Fatal: ascii_fb_size greater than what was calculated. Aborting to prevent oob array access...");
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: ascii_fb_size greater than what was calculated. Aborting to prevent segfault...");
                         status = -1;
                         goto cleanup;
                     }
@@ -1937,7 +1935,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 }
                 if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
                     status = -1;
-                    fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
                     goto cleanup;
                 }
                 uint64_t frame_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 - pre_duration;
@@ -1946,7 +1944,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 numerator+=rate;
                 double time_left = (nb_frames-frame_count-1) / (numerator/denominator);
                 if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
-                    fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
                     goto cleanup;
                 }
                 char *prefix = malloc(term_size.ws_col+1);
@@ -2057,18 +2055,18 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
 
     avfmt_ctx = avformat_alloc_context();
     if ((status = avformat_open_input(&avfmt_ctx, filename, NULL, NULL)) < 0) {
-        fprintf(stderr, "Could not read video file: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not read video file: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
         goto cleanup;
     }
     if ((status = avformat_find_stream_info(avfmt_ctx, NULL)) < 0) {
-        fprintf(stderr, "Could not find stream information: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not find stream information: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
         goto cleanup;
     }
 
     int32_t video_idx = av_find_best_stream(avfmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
     if (video_idx < 0) {
         status = video_idx;
-        fprintf(stderr, "Could not find video stream: FFmpeg error 0x%02x: %s\n", video_idx, av_err2str(video_idx));
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not find video stream: FFmpeg error 0x%02x: %s\n", video_idx, av_err2str(video_idx));
         goto cleanup;
     }
 
@@ -2077,7 +2075,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
     AVRational r_frame_rate = video_stream->r_frame_rate;
     if (r_frame_rate.num <= 0 || r_frame_rate.den <= 0) {
         status = -1;
-        fprintf(stderr, "Error getting frame rate!\n");
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error getting frame rate!\n");
         goto cleanup;
     }
     double fps = av_q2d(r_frame_rate);
@@ -2098,12 +2096,12 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         avcodec_open2(ad_ctx, decoder, NULL);
 
         if ((status = avformat_alloc_output_context2(&out_fmt_ctx, NULL, "wav", NULL)) < 0) {
-            fprintf(stderr, "Could not create output format context: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not create output format context: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
 
         if ((status = avio_open_dyn_buf(&out_avio_ctx)) < 0) {
-            fprintf(stderr, "Could not create output buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not create output buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
 
@@ -2117,7 +2115,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         encoder_ctx->time_base = (AVRational){1, ad_ctx->sample_rate};
 #if LIBAVUTIL_VERSION_MAJOR >= 57
         if ((status = av_channel_layout_copy(&encoder_ctx->ch_layout, &ad_ctx->ch_layout)) < 0) {
-            fprintf(stderr, "Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
 #else 
@@ -2125,15 +2123,15 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         encoder_ctx->channels = decoder_ctx->channels;
 #endif
         if ((status = avcodec_open2(encoder_ctx, encoder, NULL)) < 0) {
-            fprintf(stderr, "Could not open encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not open encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
         if ((status = avcodec_parameters_from_context(output_audio_stream->codecpar, encoder_ctx)) < 0) {
-            fprintf(stderr, "Could not transfer codec paramaters: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not transfer codec paramaters: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
         if ((status = avformat_write_header(out_fmt_ctx, NULL)) < 0) {
-            fprintf(stderr, "Could not write header: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not write header: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
 
@@ -2154,11 +2152,11 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         status = (swr_ctx == NULL) ? AVERROR(ENOMEM) : 0;
 #endif
         if (status < 0) {
-            fprintf(stderr, "Failed to allocate SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to allocate SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
         if ((status = swr_init(swr_ctx)) < 0) {
-            fprintf(stderr, "Failed to initialize SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to initialize SwrContext: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
 
@@ -2170,7 +2168,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
 
 #if LIBAVUTIL_VERSION_MAJOR >= 57
         if ((status = av_channel_layout_copy(&audio_converted->ch_layout, &encoder_ctx->ch_layout)) < 0) {
-            fprintf(stderr, "Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
 #else 
@@ -2179,7 +2177,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
 #endif
         if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
             status = -1;
-            fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
             goto cleanup;
         }
         pre_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
@@ -2189,7 +2187,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         uint64_t frame_count = 0;
         int64_t nb_frames = audio_stream->nb_frames;
         if (nb_frames <= 0) {
-            fprintf(stderr, "Warning: No frame count metadata! Estimating from bitrate, sample rate and frame size (this may be inaccurate)...\n");
+            fprintf(stderr, "\x1b[1;33mWarning\x1b[0m: No frame count metadata! Estimating from bitrate, sample rate and frame size (this may be inaccurate)...\n");
             double total_samples = (double)avfmt_ctx->duration / AV_TIME_BASE * audio_stream->codecpar->sample_rate;
             nb_frames = floor(total_samples / audio_stream->codecpar->frame_size)-1;
         }
@@ -2202,7 +2200,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
             }
 
             if ((status = avcodec_send_packet(ad_ctx, audio_pkt)) < 0) {
-                fprintf(stderr, "Warning: Error sending packet to decoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to send packet to decoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                 break;
             }
             while ((status = avcodec_receive_frame(ad_ctx, audio_decoded)) == 0) {
@@ -2214,7 +2212,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
 
 #if LIBAVUTIL_VERSION_MAJOR >= 57
                 if ((status = av_channel_layout_copy(&audio_converted->ch_layout, &encoder_ctx->ch_layout)) < 0) {
-                    fprintf(stderr, "Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to copy channel layout: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     goto cleanup;
                 }
 #else 
@@ -2223,7 +2221,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
 #endif
                 
                 if ((status = av_frame_get_buffer(audio_converted, 0)) < 0) {
-                    fprintf(stderr, "Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to allocate converted frame buffer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     goto cleanup;
                 }
 
@@ -2234,7 +2232,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
 
                 if (out_samples < 0) {
                     status = out_samples;
-                    fprintf(stderr, "Error during resampling: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error during resampling: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     goto cleanup;
                 }
 
@@ -2242,14 +2240,14 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                 next_pts += out_samples;
 
                 if ((status = avcodec_send_frame(encoder_ctx, audio_converted)) < 0) {
-                    fprintf(stderr, "Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error sending frame to encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                     goto cleanup;
                 }
 
                 while ((status = avcodec_receive_packet(encoder_ctx, audio_pkt)) == 0) {
                     audio_pkt->stream_index = output_audio_stream->index;
                     if ((status = av_interleaved_write_frame(out_fmt_ctx, audio_pkt)) < 0) {
-                        fprintf(stderr, "Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error writing audio frame: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                         goto cleanup;
                     }
                     av_packet_unref(audio_pkt);
@@ -2266,7 +2264,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                 }
             if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
                 status = -1;
-                fprintf(stderr, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+                fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
                 goto cleanup;
             }
             uint64_t frame_duration = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 - pre_duration;
@@ -2276,7 +2274,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
             double time_left = (nb_frames-frame_count) / (numerator/denominator);
             if (frame_count % 64 == 0) {
                 if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
-                    fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
                     goto cleanup;
                 }
                 char *prefix = malloc(term_size.ws_col+1);
@@ -2313,7 +2311,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
             denominator++;
         }
         if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
-            fprintf(stderr, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
             goto cleanup;
         }
         char *prefix = malloc(term_size.ws_col+9);
@@ -2340,7 +2338,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         free(prefix);
 
         if ((status = av_write_trailer(out_fmt_ctx)) < 0) {
-            fprintf(stderr, "Error writing trailer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error writing trailer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto cleanup;
         }
 
@@ -2350,12 +2348,12 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
 #if SDL_VERSION_ATLEAST(3, 0, 0)
         if (!SDL_SetAppMetadata(PROGRAM_NAME, VERSION, PROGRAM_NAME)) {
             status = -1;
-            fprintf(stderr, "Error setting mixer metadata: %s\n", SDL_GetError());
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error setting mixer metadata: %s\n", SDL_GetError());
             goto cleanup;
         }
         if (!SDL_SetAppMetadataProperty(SDL_PROP_APP_METADATA_TYPE_STRING, "mediaplayer")) {
             status = -1;
-            fprintf(stderr, "Error setting mixer metadata: %s\n", SDL_GetError());
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error setting mixer metadata: %s\n", SDL_GetError());
             goto cleanup;
         }
 
@@ -2373,7 +2371,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         if (SDL_Init(SDL_INIT_AUDIO) < 0 ) {
 #endif
             status = -1;
-            fprintf(stderr, "SDL_Init Error: %s\n", SDL_GetError());
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: SDL_Init Error: %s\n", SDL_GetError());
             goto cleanup;
         }
         
@@ -2393,7 +2391,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
 #endif
         if (!load_result) {
             status = -1;
-            fprintf(stderr, "Couldn't load .wav file: %s\n", SDL_GetError());
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't load .wav file: %s\n", SDL_GetError());
             goto cleanup;
         }
 
@@ -2408,7 +2406,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
 #endif
         if (!stream) {
             status = -1;
-            fprintf(stderr, "Couldn't create audio stream: %s\n", SDL_GetError());
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't create audio stream: %s\n", SDL_GetError());
             goto cleanup;
         }
     }
@@ -2437,7 +2435,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                 printf("Need permission to write to \x1b[1m%s\x1b[0m\nRunning sudo...\n", options->tty);
                 pid_t pid = fork();
                 if (pid < 0) {
-                    fprintf(stderr, "Error forking process: %s\n", strerror(errno));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error forking process: %s\n", strerror(errno));
                     status = -1;
                     goto cleanup;
                 }
@@ -2448,33 +2446,33 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                         "sudo", "chown", uid_buffer, options->tty, NULL
                     };
                     execvp("sudo", argv);
-                    fprintf(stderr, "Changing ownership of %s failed: %s\n", options->tty, strerror(errno));
+                    fprintf(stderr, "\x1b[1;31mError\x1b[0m: Changing ownership of %s failed: %s\n", options->tty, strerror(errno));
                     _exit(127);
                 }
                 int32_t chown_status;
                 if (waitpid(pid, &chown_status, 0) < 0) {
-                    fprintf(stderr, "Error waiting for sudo: %s\n", strerror(errno));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error waiting for sudo: %s\n", strerror(errno));
                     goto cleanup;
                 }
                 int32_t chown_failed = WEXITSTATUS(chown_status);
                 if (WIFSIGNALED(chown_status)) {
                     if (WTERMSIG(chown_status) == 2) {
-                        fprintf(stderr, "Sudo aborted by user\n");
+                        fprintf(stderr, "\x1b[1;33mStopping\x1b[0m: Sudo aborted by user\n");
                     } else {
                         fprintf(
-                            stderr, "Sudo exited due to signal %d: %s\n", 
+                            stderr, "\x1b[1;33mStopping\x1b[0m: Sudo exited due to signal %d: %s\n", 
                             WTERMSIG(chown_status), strsignal(WTERMSIG(chown_status)));
                     }
                     status = 128+WTERMSIG(chown_status);
                     goto cleanup;
                 }
                 if (chown_failed) {
-                    fprintf(stderr, "Changing ownership of %s failed with exit code %d!\n", options->tty, chown_failed);
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Changing ownership of %s failed with exit code %d!\n", options->tty, chown_failed);
                     status = -1;
                     goto cleanup;
                 }
                 if (chmod(options->tty, 0600)) {
-                    fprintf(stderr, "Couldn't change permissions of %s: %s\n", options->tty, strerror(errno));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't change permissions of %s: %s\n", options->tty, strerror(errno));
                     status = -1;
                     goto cleanup;
                 }
@@ -2482,12 +2480,12 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                 curses_stdout = fopen(options->tty, "w+");
                 if (!curses_stdin || !curses_stdout) {
                     status = -1;
-                    fprintf(stderr, "Couldn't open %s: %s\n", options->tty, strerror(errno));
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't open %s: %s\n", options->tty, strerror(errno));
                     goto cleanup;
                 }
             } else {
                 status = -1;
-                fprintf(stderr, "Couldn't open %s: %s\n", options->tty, strerror(errno));
+                fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't open %s: %s\n", options->tty, strerror(errno));
                 goto cleanup;
             }
         }
@@ -2507,7 +2505,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
     SCREEN *screen = newterm(curses_term, curses_stdout, curses_stdin);
     if (screen == NULL) {
         status = -1;
-        fprintf(stderr, "Error opening screen: errno %d: %s", errno, strerror(errno));
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error opening screen: errno %d: %s", errno, strerror(errno));
         goto cleanup;
     }
     noecho();
@@ -2523,7 +2521,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
 
     if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
         status = -1;
-        int_str_asprintf(&queued_err_msg, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+        int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
         goto cleanup;
     }
     pre_draw = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
@@ -2534,7 +2532,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
     int32_t break_condition = 0;
     int64_t nb_frames = video_stream->nb_frames;
         if (nb_frames <= 0) {
-            fprintf(stderr, "Warning: No frame count metadata! Estimating from duration and fps...\n");
+            fprintf(stderr, "\x1b[1;33mWarning\x1b[0m: No frame count metadata! Estimating from duration and fps...\n");
             nb_frames = (int64_t)((double) avfmt_ctx->duration / 1000000 * fps + 0.5);
         }
     double duration = floor((nb_frames-1) / fps) + fmod(nb_frames-1,  fps) / fps;
@@ -2548,7 +2546,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
 #else
         if(SDL_QueueAudio(*stream, wav_data, wav_data_len) < 0) {
             status = -1;
-            fprintf(stderr, "Audio could not be queued: %s\n", SDL_GetError());
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Audio could not be queued: %s\n", SDL_GetError());
             goto main_cleanup;
         }
 
@@ -2558,11 +2556,11 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
     while (av_read_frame(avfmt_ctx, video_pkt) >= 0) {
         if (ioctl(curses_fd, TIOCGWINSZ, &term_size) == -1) {
             status = -1;
-            int_str_asprintf(&queued_err_msg, "Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
+            int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
             goto cleanup;
         }
         if (term_size.ws_col < 2 || term_size.ws_col < 2) {
-            int_str_asprintf(&queued_err_msg, "Invalid terminal resolution! Must be 2x2 or greater. %d %s\n", 0, "Placeholder");
+            int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Invalid terminal resolution! Must be 2x2 or greater. %d %s\n", 0, "Placeholder");
             return 1;
         }
         sws_ctx = sws_getContext(
@@ -2571,7 +2569,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         SWS_BILINEAR, NULL, NULL, NULL);
 
         if (!sws_ctx) {
-            fprintf(stderr, "Failed to create sws context!\n");
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to create sws context!\n");
             status = AVERROR(EINVAL);
             goto cleanup;
         }
@@ -2584,7 +2582,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
 
         if (video_pkt->stream_index == video_idx) {
             if ((loop_status = avcodec_send_packet(vd_ctx, video_pkt)) < 0) {
-                int_str_asprintf(&queued_err_msg, "Failed to send packet: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Failed to send packet: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
                 break_condition = 1;
                 goto loop_cleanup;
             }
@@ -2599,12 +2597,12 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                     uint8_t gradient = 0.299 * rgb_buffer[idx] + 0.587 * rgb_buffer[idx+1] + 0.114 * rgb_buffer[idx+2];
                     uint64_t gradient_idx = (gradient * (ascii_size - 1)) / 255;
                     if (gradient_idx > ascii_size) {
-                        int_str_asprintf(&queued_err_msg, "Fatal: index greater than gradient list. Aborting to prevent oob array access... %d: %s\n", 0, "Placeholder");
+                        int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: index greater than gradient list. Aborting to prevent segfault... %d: %s\n", 0, "Placeholder");
                         status = -1;
                         goto loop_cleanup;
                     }
                     if (ascii_fb_size >= buffer_size / 3) {
-                        int_str_asprintf(&queued_err_msg, "Fatal: ascii_fb_size greater than what was calculated. Aborting to prevent oob array access... %d: %s\n", 0, "Placeholder");
+                        int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: scii_fb_size greater than what was calculated. Aborting to prevent segfault... %d: %s\n", 0, "Placeholder");
                         status = -1;
                         goto loop_cleanup;
                     }
@@ -2695,12 +2693,12 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                 }
                 if (draw_errors >= DRAW_ERROR_TOLERANCE) {
                     status = -1;
-                    int_str_asprintf(&queued_err_msg, "Too many draw errors: errno %d: %s. Stopping...\n", errno, strerror(errno));
+                    int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Too many draw errors: errno %d: %s. Stopping...\n", errno, strerror(errno));
                     goto loop_cleanup;
                 }
                 if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
                     status = -1;
-                    int_str_asprintf(&queued_err_msg, "Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
+                    int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Couldn't get timestamp: errno %d: %s\n", errno, strerror(errno));
                     goto loop_cleanup;
                 }
                 uint64_t draw_time = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000 - pre_draw;
@@ -2889,7 +2887,7 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
         "[filename]", aliases, 1, &options->debug_mode, 0
     );
     if (failed) {
-        fprintf(stderr, "Failed to initialise arguments\n");
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to initialise arguments\n");
         free_vidtty_arguments(arguments);
         return NULL;
     }
@@ -2900,7 +2898,7 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
             "Play or save video without any audio. Avoids loading up any audio modules", 
             "[filename]", aliases, 1, &options->no_audio, 0
     ))) {
-        fprintf(stderr, "Failed to initialise arguments\n");
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to initialise arguments\n");
         free_vidtty_arguments(arguments);
         return NULL;
     }
@@ -2911,7 +2909,7 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
             "Convert the video to a instantly playable vidtxt file", 
             "[filename]", aliases, 1, NULL, 0
     ))) {
-        fprintf(stderr, "Failed to initialise arguments\n");
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to initialise arguments\n");
         free_vidtty_arguments(arguments);
         return NULL;
     }
@@ -2922,7 +2920,7 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
             "Send output to another file or tty instead of the default stdout", 
             "TTY [filename]", aliases, 1, &options->tty, 2
     ))) {
-        fprintf(stderr, "Failed to initialise arguments\n");
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to initialise arguments\n");
         free_vidtty_arguments(arguments);
         return NULL;
     }
@@ -2937,7 +2935,7 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
             "The output size of the video to convert", 
             "VIDEO_SIZE [filename]", aliases, 2, options_size, 3
     ))) {
-        fprintf(stderr, "Failed to initialise arguments\n");
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to initialise arguments\n");
         free_vidtty_arguments(arguments);
         return NULL;
     }
@@ -2948,7 +2946,7 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
             "The width or columns the converted video should be", 
             "COLUMNS [filename]", aliases, 1, &options->columns,  1
     ))) {
-        fprintf(stderr, "Failed to initialise arguments\n");
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to initialise arguments\n");
         free_vidtty_arguments(arguments);
         return NULL;
     }
@@ -2959,7 +2957,7 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
             "The height or lines the converted video should be", 
             "LINES [filename]", aliases, 1, &options->lines, 1
     ))) {
-        fprintf(stderr, "Failed to initialise arguments\n");
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to initialise arguments\n");
         free_vidtty_arguments(arguments);
         return NULL;
     }
@@ -2970,7 +2968,7 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
             "Get information about a vidtxt file", 
             "[filename]", aliases, 1, NULL, 0
     ))) {
-        fprintf(stderr, "Failed to initialise arguments\n");
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to initialise arguments\n");
         free_vidtty_arguments(arguments);
         return NULL;
     }
@@ -2981,7 +2979,7 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
             "Displays this message", 
             "[argument]", aliases, 1, NULL, 0
     ))) {
-        fprintf(stderr, "Failed to initialise arguments\n");
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to initialise arguments\n");
         free_vidtty_arguments(arguments);
         return NULL;
     }
@@ -2997,6 +2995,7 @@ int32_t main(int32_t argc, char *argv[]) {
     VIDTTYOptions *options = calloc(1, sizeof(VIDTTYOptions));
     VIDTTYArguments *arguments = initialise_arguments(options);
     if (arguments == NULL) {
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: One or more agrument failed to initialise\n");
         return 1;
     }
     options->arguments = arguments;
@@ -3146,7 +3145,7 @@ int32_t main(int32_t argc, char *argv[]) {
         if (!is_url) {
             FILE *fp = fopen(filename, "rb");
             if (fp == NULL) {
-                fprintf(stderr, "Couldn't open %s: %s\n", filename, strerror(errno));
+                fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't open %s: %s\n", filename, strerror(errno));
                 free(options);
                 free_vidtty_arguments(arguments);
                 return 1;
