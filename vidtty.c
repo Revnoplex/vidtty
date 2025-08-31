@@ -830,7 +830,7 @@ ffmpeg_cleanup:
                 }
                 int32_t chown_failed = WEXITSTATUS(chown_status);
                 if (WIFSIGNALED(chown_status)) {
-                    if (WTERMSIG(chown_status) == 2) {
+                    if (WTERMSIG(chown_status) == SIGINT) {
                         fprintf(stderr, "\x1b[1;33mStopping\x1b[0m: Sudo aborted by user\n");
                     } else {
                         fprintf(
@@ -2456,7 +2456,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                 }
                 int32_t chown_failed = WEXITSTATUS(chown_status);
                 if (WIFSIGNALED(chown_status)) {
-                    if (WTERMSIG(chown_status) == 2) {
+                    if (WTERMSIG(chown_status) == SIGINT) {
                         fprintf(stderr, "\x1b[1;33mStopping\x1b[0m: Sudo aborted by user\n");
                     } else {
                         fprintf(
