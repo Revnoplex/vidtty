@@ -766,6 +766,8 @@ ffmpeg_cleanup:
             fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't load .wav file: %s\n", SDL_GetError());
             goto main_cleanup;
         }
+        av_free(wav_buffer);
+        wav_buffer = NULL;
 
 #if SDL_VERSION_ATLEAST(3, 0, 0)
         stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
@@ -920,6 +922,8 @@ ffmpeg_cleanup:
 
         SDL_PauseAudioDevice(*stream, 0);
 #endif
+        free(wav_data);
+        wav_data = NULL;
     }
     while (ch_read) {
         if (ioctl(curses_fd, TIOCGWINSZ, &term_size) == -1) {
@@ -2033,12 +2037,10 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
     AVPacket *audio_pkt = NULL;
     AVFrame *audio_decoded = NULL;
     SwrContext *swr_ctx = NULL;
-    AVAudioFifo *fifo = NULL;
     AVCodecContext *encoder_ctx = NULL;
     AVCodecContext *ad_ctx = NULL;
     AVFormatContext *out_fmt_ctx = NULL;
     uint8_t *audio_buffer = NULL;
-    uint8_t **resampled_data = NULL;
     AVIOContext *out_avio_ctx = NULL;
     AVFrame *audio_converted = NULL;
     uint8_t *wav_data = NULL;
@@ -2310,6 +2312,19 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
             }
             denominator++;
         }
+        av_packet_free(&audio_pkt);
+        audio_pkt = NULL;
+        av_frame_free(&audio_decoded);  
+        audio_decoded = NULL;
+        avcodec_free_context(&encoder_ctx);
+        encoder_ctx = NULL;
+        av_frame_free(&audio_converted);
+        audio_converted = NULL;
+        swr_free(&swr_ctx);
+        swr_ctx = NULL;
+        avcodec_free_context(&ad_ctx);
+        ad_ctx = NULL;
+       
         if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
             fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
             goto cleanup;
@@ -2342,7 +2357,11 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
             goto cleanup;
         }
 
+        avformat_free_context(out_fmt_ctx);
+        out_fmt_ctx = NULL;
+
         audio_size = avio_close_dyn_buf(out_avio_ctx, &audio_buffer);
+        out_avio_ctx = NULL;
         SDL_AudioSpec spec;
         
 #if SDL_VERSION_ATLEAST(3, 0, 0)
@@ -2389,6 +2408,8 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         int32_t load_result = (spec_result != NULL);
         spec = *spec_result;
 #endif
+        av_free(audio_buffer);
+        audio_buffer = NULL;
         if (!load_result) {
             status = -1;
             fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't load .wav file: %s\n", SDL_GetError());
@@ -2552,6 +2573,8 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
 
         SDL_PauseAudioDevice(*stream, 0);
 #endif
+        free(wav_data);
+        wav_data = NULL;
     }
     while (av_read_frame(avfmt_ctx, video_pkt) >= 0) {
         if (ioctl(curses_fd, TIOCGWINSZ, &term_size) == -1) {
@@ -2760,11 +2783,6 @@ cleanup:
     avformat_free_context(out_fmt_ctx);
     av_frame_free(&video_converted);
     av_frame_free(&audio_converted);
-    if (resampled_data) { 
-        av_freep(&resampled_data[0]); 
-        av_freep(&resampled_data); 
-    }
-    av_audio_fifo_free(fifo);
     swr_free(&swr_ctx);
     avcodec_free_context(&ad_ctx);
     avcodec_free_context(&vd_ctx);
