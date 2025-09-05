@@ -2568,7 +2568,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         if(SDL_QueueAudio(*stream, wav_data, wav_data_len) < 0) {
             status = -1;
             fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Audio could not be queued: %s\n", SDL_GetError());
-            goto main_cleanup;
+            goto cleanup;
         }
 
         SDL_PauseAudioDevice(*stream, 0);
