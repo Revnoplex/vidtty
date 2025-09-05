@@ -2121,8 +2121,8 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
             goto cleanup;
         }
 #else 
-        encoder_ctx->channel_layout = decoder_ctx->channel_layout;
-        encoder_ctx->channels = decoder_ctx->channels;
+        encoder_ctx->channel_layout = ad_ctx->channel_layout;
+        encoder_ctx->channels = ad_ctx->channels;
 #endif
         if ((status = avcodec_open2(encoder_ctx, encoder, NULL)) < 0) {
             fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could not open encoder: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
@@ -2148,7 +2148,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         swr_ctx = swr_alloc_set_opts(
             NULL,
             encoder_ctx->channel_layout, encoder_ctx->sample_fmt, encoder_ctx->sample_rate,
-            decoder_ctx->channel_layout, decoder_ctx->sample_fmt, decoder_ctx->sample_rate,
+            ad_ctx->channel_layout, ad_ctx->sample_fmt, ad_ctx->sample_rate,
             0, NULL
         );
         status = (swr_ctx == NULL) ? AVERROR(ENOMEM) : 0;
@@ -2174,8 +2174,8 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
             goto cleanup;
         }
 #else 
-        converted->channel_layout = encoder_ctx->channel_layout;
-        converted->channels = encoder_ctx->channels;
+        audio_converted->channel_layout = encoder_ctx->channel_layout;
+        audio_converted->channels = encoder_ctx->channels;
 #endif
         if (clock_gettime(CLOCK_MONOTONIC, &draw_spec) == ERR) {
             status = -1;
@@ -2218,8 +2218,8 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                     goto cleanup;
                 }
 #else 
-                converted->channel_layout = encoder_ctx->channel_layout;
-                converted->channels = encoder_ctx->channels;
+                audio_converted->channel_layout = encoder_ctx->channel_layout;
+                audio_converted->channels = encoder_ctx->channels;
 #endif
                 
                 if ((status = av_frame_get_buffer(audio_converted, 0)) < 0) {
@@ -2402,7 +2402,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         SDL_IOStream *wav_stream = SDL_IOFromMem(audio_buffer, audio_size);
         int32_t load_result = SDL_LoadWAV_IO(wav_stream, 1, &spec, &wav_data, &wav_data_len);
 #else
-        SDL_RWops *wav_stream = SDL_RWFromMem(wav_buffer, wav_size);
+        SDL_RWops *wav_stream = SDL_RWFromMem(audio_buffer, audio_size);
         SDL_AudioSpec *spec_result;
         spec_result = SDL_LoadWAV_RW(wav_stream, 1, &spec, &wav_data, &wav_data_len);
         int32_t load_result = (spec_result != NULL);
