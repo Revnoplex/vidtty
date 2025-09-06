@@ -37,6 +37,8 @@ The python version of the program has been tested to work on python 3.8 and late
 
 Neither Program currently has been tested to work on Windows.
 
+The C program is yet to be tested on mac os and will likely not compile due to use of some linux specific headers.
+
 ### Supported Files
 Most video file types should work as they are decoded with ffmpeg.
 
