@@ -8,7 +8,7 @@ A command line based video player written in python (rewriting in c) that conver
 Example usage of this program is featured [here](https://www.youtube.com/watch?v=OSnveMc77ss).
 
 ## Compatibility
-This program has only been tested to work on some Linux and macOS environments listed below:
+This program has only been tested to work on some Linux and macOS (python version) environments listed below:
 
 ### Python Version
 | OS Name                        | Architecture    | Python Versions          |
