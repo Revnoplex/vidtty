@@ -5,7 +5,7 @@
 # VidTTY
 A command line based video player written in python (rewriting in c) that converts and plays videos using ascii characters
 
-Example usage of this program is featured [here](https://www.youtube.com/watch?v=OSnveMc77ss).
+Example usage of this program is featured [here](https://www.youtubeg.com/watch?v=OSnveMc77ss).
 
 ## Compatibility
 This program has only been tested to work on some Linux and macOS (python version) environments listed below:
@@ -68,6 +68,11 @@ To build the c version after installing the nessarary dependencies run:
 autoreconf --install
 ./configure
 make
+```
+
+You can install the binary to your PATH with
+```sh
+sudo make install
 ```
 
 ## Usage
