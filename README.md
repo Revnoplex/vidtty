@@ -91,7 +91,7 @@ To play a video url just pass like a file:
 $ ./vidtty https://revnoplex.xyz/media/downloads/videos/gamecube.mp4
 ```
 
-You can play videos from youtube or other websites with yt-dlp (after install yt-dlp) with:
+You can play videos from youtube or other websites with yt-dlp (after installing yt-dlp) with:
 ```sh
 $ ./vidtty $(yt-dlp -f b -g "ytsearch:bad apple tf2 cover")
 ```
