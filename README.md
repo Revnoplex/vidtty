@@ -86,7 +86,7 @@ $ ./vidtty.py fake-mr-beast-bad-apple-remix.mp4
 ```
 
 ## URL Support
-To play a video url just pass like a file:
+To play a video url just pass it like a file:
 ```sh
 $ ./vidtty https://revnoplex.xyz/media/downloads/videos/gamecube.mp4
 ```
