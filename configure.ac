@@ -1,4 +1,4 @@
-AC_INIT([vidtty], [2.0.0a], [revnoplex.business@protonmail.com])
+AC_INIT([vidtty], [2.0.0b1], [revnoplex.business@protonmail.com])
 AM_INIT_AUTOMAKE
 AC_PROG_CC
 
