@@ -3,7 +3,7 @@
 # VidTTY
 A command line based video player written in c that converts and plays videos using ascii characters
 
-Example usage of this program is featured [here](https://www.youtubeg.com/watch?v=OSnveMc77ss).
+Usage of this program is featured [here](https://www.youtubeg.com/watch?v=OSnveMc77ss).
 
 ## Compatibility
 This program has only been tested to work on some Linux environments listed below:
