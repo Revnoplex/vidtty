@@ -137,6 +137,7 @@ dmypy.json
 !fake-mr-beast-bad-apple-remix.mp4
 mrbeast.sh
 bad-sandvich.sh
+bad-apple.sh
 
 # ignore generated vidtxt files
 *.vidtxt
