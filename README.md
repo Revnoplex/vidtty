@@ -20,7 +20,7 @@ This program has only been tested to work on some Linux environments listed belo
 | Fedora 42                      | amd64 (x86_64)  |
 | Debian 13                      | amd64 (x86_64)  |
 
-The C program is yet to be tested on mac os and will likely not compile due to use of some linux specific headers.
+The C program is yet to be tested on mac os and will likely not compile due to use of some specific headers only available on linux.
 
 ### Supported Files
 Most video file types should work as they are decoded with ffmpeg.
