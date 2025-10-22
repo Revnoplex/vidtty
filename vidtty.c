@@ -1,4 +1,5 @@
 #include <bits/types.h>
+#include <libavutil/log.h>
 #include <libavutil/rational.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -3010,6 +3011,7 @@ int32_t main(int32_t argc, char *argv[]) {
     if (argc < 2) {
         printf("Not enough arguments! Try %s --help for usage.\n", PROGRAM_NAME);
     }
+    av_log_set_level(AV_LOG_ERROR);
     VIDTTYOptions *options = calloc(1, sizeof(VIDTTYOptions));
     VIDTTYArguments *arguments = initialise_arguments(options);
     if (arguments == NULL) {
