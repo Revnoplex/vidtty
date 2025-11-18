@@ -1,7 +1,7 @@
 # these are the general names of dependencies required to build. 
 # These will be different between systems and 
-# just using these names in package managers is not guaranteed to work
-# see build-dependencies-$(OS_BASE).txt for package names closer to your system
+# just using these names in package managers is not guaranteed to work.
+# See build-dependencies-$(OS_BASE).txt for package names closer to your system
 # with OS_BASE being the operating system closest to yours
 gcc
 make
