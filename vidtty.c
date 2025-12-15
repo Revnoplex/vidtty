@@ -323,6 +323,10 @@ char *extract_filename_from_url(char *url, int32_t include_ext, char *add_str, u
 }
 
 char *progress_bar(uint16_t columns, char *prefix, int32_t prefix_size, char *suffix, int32_t suffix_size, uint64_t numerator, uint64_t denominator) {
+    if (!denominator) {
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Got unexpected zero value while creating progress bar!\n");
+        return NULL;
+    }
     for (int32_t idx = prefix_size; idx < columns+1; idx++) {
         prefix[idx] = ' ';
     }
