@@ -911,6 +911,7 @@ ffmpeg_cleanup:
     pre_draw = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
     uint64_t initial_draw = pre_draw;
     uint64_t frame_num = 0;
+    double draw_rate = vidtxt_info->fps;
     if (vidtxt_info->audio_size > 0 && options->no_audio == 0) {
 #if SDL_VERSION_ATLEAST(3, 0, 0)
         if (SDL_GetAudioStreamQueued(stream) < (int)wav_data_len) {
@@ -976,7 +977,7 @@ ffmpeg_cleanup:
             double time_position = floor(frame_num / vidtxt_info->fps) + fmod(frame_num,  vidtxt_info->fps) / vidtxt_info->fps;
             int32_t prefix_size = snprintf(
                 prefix, curr_term_cols+1,
-                "[Frame: (required,drawn,sync): (%lu,%lu,%ld), %02u:%02u:%06.3lf]", estimated_frame, frame_num, sync,
+                "[Frame: (required,drawn,sync,rate): (%lu,%lu,%ld,%.2lf), %02u:%02u:%06.3lf]", estimated_frame, frame_num, sync, draw_rate,
                 (uint32_t) floor(time_position / 3600), (uint32_t) floor(time_position / 60), fmod(time_position, 60)
             );
             char *suffix = malloc(curr_term_cols);
@@ -1055,9 +1056,11 @@ ffmpeg_cleanup:
                 }
             }
             if (sync >= 0 ) {
+                draw_rate = 1 / ( (float) (sleep_interval+draw_time) / 1000000);
                 usleep(sleep_interval);
             }
         } else {
+            draw_rate = 1 / ( (float) draw_time / 1000000);
             if (options->debug_mode && draw_time > interval) {
             }
             pre_draw = draw_spec.tv_sec * 1000000 + draw_spec.tv_nsec / 1000;
@@ -2555,6 +2558,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
     video_pkt = av_packet_alloc();
     video_decoded = av_frame_alloc();
     video_converted = av_frame_alloc();
+    double draw_rate = fps;
     int32_t break_condition = 0;
     int64_t nb_frames = video_stream->nb_frames;
         if (nb_frames <= 0) {
@@ -2661,7 +2665,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                     double time_position = floor(frame_count / fps) + fmod(frame_count,  fps) / fps;
                     int32_t prefix_size = snprintf(
                         prefix, term_size.ws_col+1,
-                        "[Frame (required,drawn,sync): (%lu,%lu,%ld), %02u:%02u:%06.3lf]", estimated_frame, frame_count, sync, 
+                        "[Frame (required,drawn,sync,rate): (%lu,%lu,%ld,%.2lf), %02u:%02u:%06.3lf]", estimated_frame, frame_count, sync, draw_rate,
                         (uint32_t) floor(time_position / 3600), (uint32_t) floor(time_position / 60), fmod(time_position, 60)
                     );
                     char *suffix = malloc(term_size.ws_col);
@@ -2740,9 +2744,11 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                         }
                     }
                     if (sync >= 0 ) {
+                        draw_rate = 1 / ( (float) (sleep_interval+draw_time) / 1000000);
                         usleep(sleep_interval);
                     }
                 } else {
+                    draw_rate = 1 / ( (float) draw_time / 1000000);
                     if (options->debug_mode && draw_time > interval) {
                         
                     }
