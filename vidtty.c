@@ -124,6 +124,10 @@ typedef struct _VIDTTYArguments {
 
 VIDTXTInfo *new_vidtxt_info(FILE *fp, char *filename) {
     VIDTXTInfo *vidtxt_info = malloc(sizeof(VIDTXTInfo));
+    if (vidtxt_info == NULL) {
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return NULL;
+    }
 
     if (ftell(fp) != 0) {
         fprintf(stderr, "\x1b[1;31mError\x1b[0m: File pointer not seeked to start\n");
@@ -256,7 +260,10 @@ int32_t int_str_asprintf(char **restrict ptr, const char *restrict fmt, int32_t 
     for(str_size = 0; s[str_size] != '\0'; str_size++);
     calculated_size+= str_size;
 
-    *ptr = malloc(calculated_size);
+    if ((*ptr = malloc(calculated_size)) == NULL) {
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return -1;
+    }
 
     snprintf(*ptr, calculated_size, fmt, d, s);
 
@@ -293,6 +300,10 @@ char *extract_filename_from_url(char *url, int32_t include_ext, char *add_str, u
     int32_t sizeof_url;
     for(sizeof_url = 0; url[sizeof_url] != '\0'; sizeof_url++);
     char *output_buffer = malloc(sizeof_url+add_strc);
+    if (output_buffer == NULL) {
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return NULL;
+    }
     int32_t buffer_idx = 0;
     int32_t stop_adding = 0;
     for (int32_t idx = 0; url[idx] != '\0'; idx++) {
@@ -335,6 +346,10 @@ char *progress_bar(uint16_t columns, char *prefix, int32_t prefix_size, char *su
     }
     prefix[columns] = '\0';
     char *full_bar = malloc(columns+9);
+     if (full_bar == NULL) {
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return NULL;
+    }
     char escape_prefix[] = "\x1b[7m";
     snprintf(full_bar, sizeof(escape_prefix), "%s", escape_prefix);
     char insert[] = "\x1b[0m";
@@ -422,6 +437,11 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
 
         #define AVIO_BUFFER_SIZE 4096
         uint8_t *avio_buffer = malloc(AVIO_BUFFER_SIZE);
+        if (avio_buffer == NULL) {
+            status = -1;
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+            goto ffmpeg_cleanup;
+        }
         avio_ctx = avio_alloc_context(avio_buffer, AVIO_BUFFER_SIZE, 0, vidtxt_info, avio_custom_read, NULL, NULL);
         if (avio_ctx == NULL) {
             status = -1;
@@ -521,6 +541,11 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
         pkt = av_packet_alloc();
         decoded = av_frame_alloc();
         converted = av_frame_alloc();
+        if (pkt == NULL || decoded == NULL || converted == NULL) {
+            status = AVERROR(ENOMEM);
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: FFmpeg memory allocation error: %s", av_err2str(status));
+            goto ffmpeg_cleanup;
+        }
         converted->format = encoder_ctx->sample_fmt;
         converted->sample_rate = encoder_ctx->sample_rate;
 
@@ -632,10 +657,16 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
             double time_left = (nb_frames-frame_count) / (numerator/denominator);
             if (frame_count % 64 == 0) {
                 if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
+                    status = -1;
                     fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
                     goto ffmpeg_cleanup;
                 }
                 char *prefix = malloc(term_size.ws_col+1);
+                if (prefix == NULL) {
+                    status = -1;
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                    goto ffmpeg_cleanup;
+                }
                 int32_t prefix_size;
                 int32_t suffix_size;
                 char *suffix;
@@ -648,6 +679,11 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
                         (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
                     );
                     suffix = malloc(SUFFIX_MAX_SIZE);
+                    if (suffix == NULL) {
+                        status = -1;
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                        goto ffmpeg_cleanup;
+                    }
                     suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count) / nb_frames);
                     full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count, nb_frames);
                 } else {
@@ -657,6 +693,11 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
                         frame_count, numerator/denominator
                     );
                     suffix = malloc(SUFFIX_MAX_SIZE);
+                    if (suffix == NULL) {
+                        status = -1;
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                        goto ffmpeg_cleanup;
+                    }
                     suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ ???%% ]");
                     full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, 0, 1);
                 }
@@ -669,10 +710,16 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
             denominator++;
         }
         if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
+            status = -1;
             fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
             goto ffmpeg_cleanup;
         }
         char *prefix = malloc(term_size.ws_col+9);
+        if (prefix == NULL) {
+            status = -1;
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+            goto ffmpeg_cleanup;
+        }
         if (nb_frames <= 0) {
             nb_frames = frame_count;
         }
@@ -686,6 +733,11 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
             prefix[idx] = ' ';
         }
         char *suffix = malloc(SUFFIX_MAX_SIZE+4);
+        if (suffix == NULL) {
+            status = -1;
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+            goto ffmpeg_cleanup;
+        }
         int32_t suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE+4, "[ %lu%% ]\x1b[0m", 100*(frame_count) / nb_frames);
         for (int32_t idx = 0; idx < suffix_size; idx++) {
             prefix[term_size.ws_col+8-suffix_size+idx] = suffix[idx];
@@ -696,6 +748,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
         free(prefix);
 
         if ((status = av_write_trailer(out_fmt_ctx)) < 0) {
+            status = -1;
             fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error writing trailer: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
             goto ffmpeg_cleanup;
         }
@@ -778,6 +831,11 @@ ffmpeg_cleanup:
         stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
 #else
         stream = malloc(sizeof(SDL_AudioDeviceID));
+        if (stream == NULL) {
+            status = -1;
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+            goto main_cleanup;
+        }
         SDL_AudioDeviceID device_id = SDL_OpenAudioDevice(NULL, 0, &spec, NULL, 0);
         if (device_id) {
             *stream = device_id;
@@ -900,6 +958,11 @@ ffmpeg_cleanup:
     int32_t draw_successful = 0;
     int32_t draw_errors = 0;
     line_contents = malloc(vidtxt_info->print_columns);
+    if (line_contents == NULL) {
+        status = -1;
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        goto main_cleanup;
+    }
     
     uint64_t pre_draw;
 
@@ -935,7 +998,7 @@ ffmpeg_cleanup:
         if (ioctl(curses_fd, TIOCGWINSZ, &term_size) == -1) {
             status = -1;
             fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
-            goto main_cleanup;
+            break;
         }
 
         uint16_t curr_term_lines = term_size.ws_row;
@@ -947,6 +1010,11 @@ ffmpeg_cleanup:
             if (line < (uint16_t) (curr_term_lines))  {
                 if (vidtxt_info->print_columns > curr_term_cols) {
                     chtype *ch_array = malloc((curr_term_cols)*sizeof(chtype));
+                    if (ch_array == NULL) {
+                        status = -1;
+                        int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: errno: %d %s\n", errno, strerror(errno));
+                        break;
+                    }
                     for (uint32_t ch = 0; ch < curr_term_cols; ch++) {
                         ch_array[ch] = line_contents[ch] | A_NORMAL;
                     }
@@ -954,6 +1022,11 @@ ffmpeg_cleanup:
                     free(ch_array);
                 } else {
                     chtype *ch_array = malloc((vidtxt_info->print_columns)*sizeof(chtype));
+                    if (ch_array == NULL) {
+                        status = -1;
+                        int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: errno: %d %s\n", errno, strerror(errno));
+                        break;
+                    }
                     for (uint32_t ch = 0; ch < vidtxt_info->print_columns; ch++) {
                         ch_array[ch] = line_contents[ch] | A_NORMAL;
                     }
@@ -974,6 +1047,11 @@ ffmpeg_cleanup:
         int64_t sync = frame_num-estimated_frame;
         if (options->debug_mode) {
             char *prefix = malloc(curr_term_cols+1);
+            if (prefix == NULL) {
+                status = -1;
+                int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: errno: %d %s\n", errno, strerror(errno));
+                break;
+            }
             double time_position = floor(frame_num / vidtxt_info->fps) + fmod(frame_num,  vidtxt_info->fps) / vidtxt_info->fps;
             int32_t prefix_size = snprintf(
                 prefix, curr_term_cols+1,
@@ -981,6 +1059,11 @@ ffmpeg_cleanup:
                 (uint32_t) floor(time_position / 3600), (uint32_t) floor(time_position / 60), fmod(time_position, 60)
             );
             char *suffix = malloc(curr_term_cols);
+            if (suffix == NULL) {
+                status = -1;
+                int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: errno: %d %s\n", errno, strerror(errno));
+                break;
+            }
             int32_t suffix_size = snprintf(suffix, curr_term_cols, "[%02u:%02u:%06.3lf, %lu Frames, %lu%%]", 
                 (uint32_t) floor(vidtxt_info->duration / 3600), (uint32_t) floor(vidtxt_info->duration / 60), fmod(vidtxt_info->duration, 60),
                 vidtxt_info->total_frames, 100*frame_num / vidtxt_info->total_frames
@@ -991,9 +1074,19 @@ ffmpeg_cleanup:
             uint32_t full_bar_size;
             for (full_bar_size = 0; full_bar[full_bar_size] != '\0'; full_bar_size++);
             chtype *ch_array = malloc(full_bar_size*sizeof(chtype));
+            if (ch_array == NULL) {
+                status = -1;
+                int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: errno: %d %s\n", errno, strerror(errno));
+                break;
+            }
             uint32_t current_style = A_NORMAL;
             int32_t read_esc_seq = 0;
             char *ansi_esc_buffer = malloc(4);
+            if (ansi_esc_buffer == NULL) {
+                status = -1;
+                fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                break;
+            }
             uint8_t aeb_size = 0;
             uint32_t offset = 0;
             for (uint32_t ch = 0; ch < full_bar_size; ch++) {
@@ -1150,10 +1243,18 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
     
     if (includes_match(filename, "://")) {
         output_filename = extract_filename_from_url(filename, 0, VIDTXT_EXT, sizeof(VIDTXT_EXT));
+        if (output_filename == NULL) {
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to extract filename from URL\n");
+            return 1;
+        }
     } else {
         int32_t fname_size;
         for (fname_size = 0; filename[fname_size] != '\0'; fname_size++);
         output_filename = malloc(fname_size+sizeof(VIDTXT_EXT));
+        if (output_filename == NULL) {
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+            return 1;
+        }
         int32_t prefix_size;
         for (prefix_size = 0; filename[prefix_size] != '.' && filename[prefix_size] != '\0'; prefix_size++) {
             output_filename[prefix_size] = filename[prefix_size];
@@ -1179,6 +1280,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             while (1) {
                 rep_size = snprintf(NULL, 0, "%s.%u%s", output_filename, duplicate_number, VIDTXT_EXT);
                 tmp_buffer = malloc(rep_size+1);
+                if (tmp_buffer == NULL) {
+                    free(output_filename);
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                    return 1;
+                }
                 snprintf(tmp_buffer, rep_size+1, "%s.%u%s", output_filename, duplicate_number, VIDTXT_EXT);
                 if (access(tmp_buffer, F_OK)) {
                     break;
@@ -1186,7 +1292,13 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 free(tmp_buffer);
                 duplicate_number++;
             }
-            output_filename = realloc(output_filename, rep_size+1);
+            char *ra_of = realloc(output_filename, rep_size+1);
+            if (ra_of == NULL) {
+                fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                free(output_filename);
+                return 1;
+            }
+            output_filename = ra_of;
             snprintf(output_filename, rep_size+1, "%s", tmp_buffer);
             free(tmp_buffer);
         }
@@ -1378,6 +1490,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
 
         audio_pkt = av_packet_alloc();
         audio_decoded = av_frame_alloc();
+        if (fifo == NULL || audio_pkt == NULL || audio_decoded == NULL) {
+            status = AVERROR(ENOMEM);
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: FFmpeg memory allocation error: %s", av_err2str(status));
+            goto cleanup;
+        }
 
         int resampled_linesize = 0;
         int max_dst_nb_samples = 0;
@@ -1456,9 +1573,9 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 // While we have enough for a full encoder frame, encode it
                 while (av_audio_fifo_size(fifo) >= enc_frame_size) {
                     AVFrame *audio_converted = av_frame_alloc();
-                    if (!audio_converted) { 
-                        status = AVERROR(ENOMEM); 
-                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error allocating conversion frames: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                    if (audio_converted == NULL) { 
+                        status = AVERROR(ENOMEM);
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: FFmpeg memory allocation error: %s", av_err2str(status));
                         goto cleanup; 
                     }
                     audio_converted->nb_samples  = enc_frame_size;
@@ -1493,10 +1610,10 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                     av_frame_free(&audio_converted);
 
                     AVPacket *opkt = av_packet_alloc();
-                    if (!opkt) { 
-                        status = AVERROR(ENOMEM); 
-                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Error allocating pkt: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
-                        goto cleanup; 
+                    if (opkt == NULL) { 
+                        status = AVERROR(ENOMEM);
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: FFmpeg memory allocation error: %s", av_err2str(status));
+                        goto cleanup;
                     }
                     while ((status = avcodec_receive_packet(encoder_ctx, opkt)) >= 0) {
                         opkt->stream_index = output_audio_stream->index;
@@ -1531,10 +1648,16 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             double time_left = (nb_frames-frame_count) / (numerator/denominator);
             if (frame_count % 64 == 0) {
                 if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
+                    status = -1;
                     fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
                     goto cleanup;
                 }
                 char *prefix = malloc(term_size.ws_col+1);
+                if (prefix == NULL) {
+                    status = -1;
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                    goto cleanup;
+                }
                 int32_t prefix_size;
                 int32_t suffix_size;
                 char *suffix;
@@ -1547,6 +1670,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                         (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
                     );
                     suffix = malloc(SUFFIX_MAX_SIZE);
+                    if (suffix == NULL) {
+                        status = -1;
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                        goto cleanup;
+                    }
                     suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count) / nb_frames);
                     full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count, nb_frames);
                 } else {
@@ -1556,6 +1684,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                         frame_count, numerator/denominator
                     );
                     suffix = malloc(SUFFIX_MAX_SIZE);
+                    if (suffix == NULL) {
+                        status = -1;
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                        goto cleanup;
+                    }
                     suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ ???%% ]");
                     full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, 0, 1);
                 }
@@ -1616,7 +1749,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             // Encode any complete frames now available
             while (av_audio_fifo_size(fifo) >= enc_frame_size) {
                 AVFrame *audio_converted = av_frame_alloc();
-                if (!audio_converted) { status = AVERROR(ENOMEM); goto cleanup; }
+                if (audio_converted == NULL) {
+                    status = AVERROR(ENOMEM);
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: FFmpeg memory allocation error: %s", av_err2str(status));
+                    goto cleanup;
+                }
                 audio_converted->nb_samples = enc_frame_size;
                 audio_converted->format = encoder_ctx->sample_fmt;
                 audio_converted->sample_rate = encoder_ctx->sample_rate;
@@ -1640,7 +1777,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 av_frame_free(&audio_converted);
 
                 AVPacket *opkt = av_packet_alloc();
-                if (!opkt) { status = AVERROR(ENOMEM); goto cleanup; }
+                if (opkt == NULL) {
+                    status = AVERROR(ENOMEM);
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: FFmpeg memory allocation error: %s", av_err2str(status));
+                    goto cleanup;
+                }
                 while ((status = avcodec_receive_packet(encoder_ctx, opkt)) >= 0) {
                     opkt->stream_index = output_audio_stream->index;
                     av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
@@ -1678,7 +1819,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
 
             while (av_audio_fifo_size(fifo) >= enc_frame_size) {
                 AVFrame *audio_converted = av_frame_alloc();
-                if (!audio_converted) { status = AVERROR(ENOMEM); goto cleanup; }
+                if (audio_converted == NULL) {
+                    status = AVERROR(ENOMEM);
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: FFmpeg memory allocation error: %s", av_err2str(status));
+                    goto cleanup;
+                }
                 audio_converted->nb_samples = enc_frame_size;
                 audio_converted->format = encoder_ctx->sample_fmt;
                 audio_converted->sample_rate = encoder_ctx->sample_rate;
@@ -1702,7 +1847,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 av_frame_free(&audio_converted);
 
                 AVPacket *opkt = av_packet_alloc();
-                if (!opkt) { status = AVERROR(ENOMEM); goto cleanup; }
+                if (opkt == NULL) {
+                    status = AVERROR(ENOMEM);
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: FFmpeg memory allocation error: %s", av_err2str(status));
+                    goto cleanup;
+                }
                 while ((status = avcodec_receive_packet(encoder_ctx, opkt)) >= 0) {
                     opkt->stream_index = output_audio_stream->index;
                     av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
@@ -1755,7 +1904,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 // Now exactly one (or more) full-size frames remain
                 while (av_audio_fifo_size(fifo) >= enc_frame_size) {
                     AVFrame *audio_converted = av_frame_alloc();
-                    if (!audio_converted) { status = AVERROR(ENOMEM); goto cleanup; }
+                    if (audio_converted == NULL) {
+                        status = AVERROR(ENOMEM);
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: FFmpeg memory allocation error: %s", av_err2str(status));
+                        goto cleanup;
+                    }
                     audio_converted->nb_samples = enc_frame_size;
                     audio_converted->format = encoder_ctx->sample_fmt;
                     audio_converted->sample_rate = encoder_ctx->sample_rate;
@@ -1779,7 +1932,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                     av_frame_free(&audio_converted);
 
                     AVPacket *opkt = av_packet_alloc();
-                    if (!opkt) { status = AVERROR(ENOMEM); goto cleanup; }
+                    if (opkt == NULL) {
+                        status = AVERROR(ENOMEM);
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: FFmpeg memory allocation error: %s", av_err2str(status));
+                        goto cleanup;
+                    }
                     while ((status = avcodec_receive_packet(encoder_ctx, opkt)) >= 0) {
                         opkt->stream_index = output_audio_stream->index;
                         av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
@@ -1803,7 +1960,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
         }
         {
             AVPacket *opkt = av_packet_alloc();
-            if (!opkt) { status = AVERROR(ENOMEM); goto cleanup; }
+            if (opkt == NULL) {
+                status = AVERROR(ENOMEM);
+                fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: FFmpeg memory allocation error: %s", av_err2str(status));
+                goto cleanup;
+            }
             while ((status = avcodec_receive_packet(encoder_ctx, opkt)) >= 0) {
                 opkt->stream_index = output_audio_stream->index;
                 av_packet_rescale_ts(opkt, encoder_ctx->time_base, output_audio_stream->time_base);
@@ -1818,10 +1979,16 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             if (status == AVERROR(EAGAIN) || status == AVERROR_EOF) status = 0;
         }
         if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
+            status = -1;
             fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
             goto cleanup;
         }
         char *prefix = malloc(term_size.ws_col+9);
+        if (prefix == NULL) {
+            status = -1;
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+            goto cleanup;
+        }
         if (nb_frames <= 0) {
             nb_frames = frame_count;
         }
@@ -1835,6 +2002,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
             prefix[idx] = ' ';
         }
         char *suffix = malloc(SUFFIX_MAX_SIZE+4);
+        if (suffix == NULL) {
+            status = -1;
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+            goto cleanup;
+        }
         int32_t suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE+4, "[ %lu%% ]\x1b[0m", 100*(frame_count) / nb_frames);
         for (int32_t idx = 0; idx < suffix_size; idx++) {
             prefix[term_size.ws_col+8-suffix_size+idx] = suffix[idx];
@@ -1886,8 +2058,19 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
     video_decoded = av_frame_alloc();
     video_converted = av_frame_alloc();
 
+    if (video_pkt == NULL || video_decoded == NULL || video_converted == NULL) {
+        status = AVERROR(ENOMEM);
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: FFmpeg memory allocation error: %s", av_err2str(status));
+        goto cleanup;
+    }
+
     int buffer_size = av_image_get_buffer_size(AV_PIX_FMT_RGB24, options->columns-1, options->lines-1, 1);
     rgb_buffer = av_malloc(buffer_size);
+    if (rgb_buffer == NULL) {
+        status = AVERROR(ENOMEM);
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: FFmpeg memory allocation error: %s", av_err2str(status));
+        goto cleanup;
+    }
     av_image_fill_arrays(video_converted->data, video_converted->linesize, rgb_buffer, AV_PIX_FMT_RGB24,
                          options->columns-1, options->lines-1, 1);
 
@@ -1922,6 +2105,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 sws_scale(sws_ctx, (const uint8_t *const *)video_decoded->data, video_decoded->linesize,
                           0, vd_ctx->height, video_converted->data, video_converted->linesize);
                 char *ascii_fb = malloc(buffer_size / 3);
+                if (ascii_fb == NULL) {
+                    status = -1;
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                    goto cleanup;
+                }
                 int32_t ascii_fb_size = 0;
                 for (int32_t idx = 0; idx+2 < buffer_size; idx+=3) {
                     uint8_t gradient = 0.299 * rgb_buffer[idx] + 0.587 * rgb_buffer[idx+1] + 0.114 * rgb_buffer[idx+2];
@@ -1956,10 +2144,16 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                 numerator+=rate;
                 double time_left = (nb_frames-frame_count-1) / (numerator/denominator);
                 if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
+                    status = -1;
                     fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
                     goto cleanup;
                 }
                 char *prefix = malloc(term_size.ws_col+1);
+                if (prefix == NULL) {
+                    status = -1;
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                    goto cleanup;
+                }
                 int32_t prefix_size;
                 int32_t suffix_size;
                 char *suffix;
@@ -1972,6 +2166,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                         (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
                     );
                     suffix = malloc(SUFFIX_MAX_SIZE);
+                    if (suffix == NULL) {
+                        status = -1;
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                        goto cleanup;
+                    }
                     suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count+1) / nb_frames);
                     full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count+1, nb_frames);
                 } else {
@@ -1981,6 +2180,11 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                         frame_count+1, numerator/denominator
                     );
                     suffix = malloc(SUFFIX_MAX_SIZE);
+                    if (suffix == NULL) {
+                        status = -1;
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                        goto cleanup;
+                    }
                     suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ ???%% ]");
                     full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, 0, 1);
                 }
@@ -2173,6 +2377,11 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         audio_pkt = av_packet_alloc();
         audio_decoded = av_frame_alloc();
         audio_converted = av_frame_alloc();
+        if (audio_pkt == NULL || audio_decoded == NULL || audio_converted == NULL) {
+            status = AVERROR(ENOMEM);
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: FFmpeg memory allocation error: %s", av_err2str(status));
+            goto cleanup;
+        }
         audio_converted->format = encoder_ctx->sample_fmt;
         audio_converted->sample_rate = encoder_ctx->sample_rate;
 
@@ -2284,10 +2493,16 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
             double time_left = (nb_frames-frame_count) / (numerator/denominator);
             if (frame_count % 64 == 0) {
                 if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
+                    status = -1;
                     fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
                     goto cleanup;
                 }
                 char *prefix = malloc(term_size.ws_col+1);
+                if (prefix == NULL) {
+                    status = -1;
+                    fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                    goto cleanup;
+                }
                 int32_t prefix_size;
                 int32_t suffix_size;
                 char *suffix;
@@ -2300,6 +2515,11 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                         (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
                     );
                     suffix = malloc(SUFFIX_MAX_SIZE);
+                    if (suffix == NULL) {
+                        status = -1;
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                        goto cleanup;
+                    }
                     suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ %lu%% ]", 100*(frame_count) / nb_frames);
                     full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, frame_count, nb_frames);
                 } else {
@@ -2309,6 +2529,11 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                         frame_count, numerator/denominator
                     );
                     suffix = malloc(SUFFIX_MAX_SIZE);
+                    if (suffix == NULL) {
+                        status = -1;
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                        goto cleanup;
+                    }
                     suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE, "[ ???%% ]");
                     full_bar = progress_bar(term_size.ws_col, prefix, prefix_size, suffix, suffix_size, 0, 1);
                 }
@@ -2334,10 +2559,16 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         ad_ctx = NULL;
        
         if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
+            status = -1;
             fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
             goto cleanup;
         }
         char *prefix = malloc(term_size.ws_col+9);
+        if (prefix == NULL) {
+            status = -1;
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+            goto cleanup;
+        }
         if (nb_frames <= 0) {
             nb_frames = frame_count;
         }
@@ -2351,6 +2582,11 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
             prefix[idx] = ' ';
         }
         char *suffix = malloc(SUFFIX_MAX_SIZE+4);
+        if (suffix == NULL) {
+            status = -1;
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+            goto cleanup;
+        }
         int32_t suffix_size = snprintf(suffix, SUFFIX_MAX_SIZE+4, "[ %lu%% ]\x1b[0m", 100*(frame_count) / nb_frames);
         for (int32_t idx = 0; idx < suffix_size; idx++) {
             prefix[term_size.ws_col+8-suffix_size+idx] = suffix[idx];
@@ -2428,6 +2664,11 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
 #else
         stream = malloc(sizeof(SDL_AudioDeviceID));
+        if (stream == NULL) {
+            status = -1;
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+            goto cleanup;
+        }
         SDL_AudioDeviceID device_id = SDL_OpenAudioDevice(NULL, 0, &spec, NULL, 0);
         if (device_id) {
             *stream = device_id;
@@ -2558,6 +2799,11 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
     video_pkt = av_packet_alloc();
     video_decoded = av_frame_alloc();
     video_converted = av_frame_alloc();
+    if (video_pkt == NULL || video_decoded == NULL || video_converted == NULL) {
+        status = AVERROR(ENOMEM);
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: FFmpeg memory allocation error: %s", av_err2str(status));
+        goto cleanup;
+    }
     double draw_rate = fps;
     int32_t break_condition = 0;
     int64_t nb_frames = video_stream->nb_frames;
@@ -2608,6 +2854,11 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         
         int buffer_size = av_image_get_buffer_size(AV_PIX_FMT_RGB24, term_size.ws_col-1, term_size.ws_row-1, 1);
         rgb_buffer = av_malloc(buffer_size);
+        if (rgb_buffer == NULL) {
+            status = AVERROR(ENOMEM);
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: FFmpeg memory allocation error: %s", av_err2str(status));
+            goto cleanup;
+        }
         av_image_fill_arrays(video_converted->data, video_converted->linesize, rgb_buffer, AV_PIX_FMT_RGB24,
                             term_size.ws_col-1, term_size.ws_row-1, 1);
         refresh();
@@ -2623,6 +2874,11 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                 sws_scale(sws_ctx, (const uint8_t *const *)video_decoded->data, video_decoded->linesize,
                           0, vd_ctx->height, video_converted->data, video_converted->linesize);
                 char *ascii_fb = malloc(buffer_size / 3);
+                if (ascii_fb == NULL) {
+                    status = -1;
+                    int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: errno %d: %s\n", errno, strerror(errno));
+                    goto loop_cleanup;
+                }
                 int32_t ascii_fb_size = 0;
                 int32_t line = 0;
                 for (int32_t idx = 0; idx+2 < buffer_size; idx+=3) {
@@ -2643,6 +2899,11 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                     if (ascii_fb_size == term_size.ws_col-1) {
                         if (line < (uint16_t) (term_size.ws_row))  {
                             chtype *ch_array = malloc(ascii_fb_size*sizeof(chtype));
+                            if (ch_array == NULL) {
+                                status = -1;
+                                int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: errno %d: %s\n", errno, strerror(errno));
+                                goto loop_cleanup;
+                            }
                             for (int32_t ch = 0; ch < ascii_fb_size; ch++) {
                                 ch_array[ch] = ascii_fb[ch] | A_NORMAL;
                             }
@@ -2662,6 +2923,11 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                 int64_t sync = frame_count-estimated_frame;
                 if (options->debug_mode) {
                     char *prefix = malloc(term_size.ws_col+1);
+                    if (prefix == NULL) {
+                        status = -1;
+                        int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: errno %d: %s\n", errno, strerror(errno));
+                        goto loop_cleanup;
+                    }
                     double time_position = floor(frame_count / fps) + fmod(frame_count,  fps) / fps;
                     int32_t prefix_size = snprintf(
                         prefix, term_size.ws_col+1,
@@ -2669,6 +2935,11 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                         (uint32_t) floor(time_position / 3600), (uint32_t) floor(time_position / 60), fmod(time_position, 60)
                     );
                     char *suffix = malloc(term_size.ws_col);
+                    if (suffix == NULL) {
+                        status = -1;
+                        int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: errno %d: %s\n", errno, strerror(errno));
+                        goto loop_cleanup;
+                    }
                     int32_t suffix_size = snprintf(suffix, term_size.ws_col, "[%02u:%02u:%06.3lf, %lu Frames, %lu%%]", 
                         (uint32_t) floor(duration / 3600), (uint32_t) floor(duration / 60), fmod(duration, 60),
                         nb_frames-1, 100*frame_count / (nb_frames-1)
@@ -2679,9 +2950,19 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                     uint32_t full_bar_size;
                     for (full_bar_size = 0; full_bar[full_bar_size] != '\0'; full_bar_size++);
                     chtype *ch_array = malloc(full_bar_size*sizeof(chtype));
+                    if (ch_array == NULL) {
+                        status = -1;
+                        int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: errno %d: %s\n", errno, strerror(errno));
+                        goto loop_cleanup;
+                    }
                     uint32_t current_style = A_NORMAL;
                     int32_t read_esc_seq = 0;
                     char *ansi_esc_buffer = malloc(4);
+                    if (ansi_esc_buffer == NULL) {
+                        status = -1;
+                        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                        goto loop_cleanup;
+                    }
                     uint8_t aeb_size = 0;
                     uint32_t offset = 0;
                     for (uint32_t ch = 0; ch < full_bar_size; ch++) {
@@ -2847,6 +3128,10 @@ VIDTTYArgument *new_vidtty_argument(
     int8_t associated_typedef
 ) {
     VIDTTYArgument *argument = malloc(sizeof(VIDTTYArgument));
+    if (argument == NULL) {
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return NULL;
+    }
     argument->name = name;
     argument->type = type;
     argument->associated_call = associated_call;
@@ -2860,7 +3145,7 @@ VIDTTYArgument *new_vidtty_argument(
 }
 
 void free_vidtty_argument(VIDTTYArgument *argument) {
-    if (argument) {
+    if (argument != NULL) {
         if (argument->associated_typedef == 3) {
             free(argument->associated_option);
         }
@@ -2871,7 +3156,7 @@ void free_vidtty_argument(VIDTTYArgument *argument) {
 
 int32_t add_vidtty_argument(VIDTTYArguments *arguments, VIDTTYArgument *argument) {
     VIDTTYArgument **resized = realloc(arguments->argumentv, arguments->argumentc*sizeof(void *) + sizeof(void *));
-    if (resized == NULL) {
+    if (resized == NULL || argument == NULL) {
         return -1;
     }
     arguments->argumentv = resized;
@@ -2891,13 +3176,17 @@ int32_t add_new_vidtty_argument(
 
 VIDTTYArguments *new_vidtty_arguments() {
     VIDTTYArguments *arguments = malloc(sizeof(VIDTTYArguments));
+    if (arguments == NULL) {
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return NULL;
+    }
     arguments->argumentv = NULL;
     arguments->argumentc =  0;
     return arguments;
 }
 
 void free_vidtty_arguments(VIDTTYArguments *arguments) {
-    if (arguments && arguments->argumentv) {
+    if (arguments != NULL && arguments->argumentv != NULL) {
         for (uint32_t argument = 0; argument < arguments->argumentc; argument++) {
             free_vidtty_argument(arguments->argumentv[argument]);
         }
@@ -2909,6 +3198,11 @@ void free_vidtty_arguments(VIDTTYArguments *arguments) {
 VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
     VIDTTYArguments *arguments = new_vidtty_arguments();
     char **aliases = malloc(sizeof(void *));
+    if (aliases == NULL) {
+        free_vidtty_arguments(arguments);
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return NULL;
+    }
     aliases[0] = "b";
     int32_t failed = add_new_vidtty_argument(
         arguments, "debug-mode", 0, NULL, 
@@ -2921,6 +3215,11 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
         return NULL;
     }
     aliases = malloc(sizeof(void *));
+    if (aliases == NULL) {
+        free_vidtty_arguments(arguments);
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return NULL;
+    }
     aliases[0] = "m";
     if ((failed = add_new_vidtty_argument(
             arguments, "no-audio", 0, NULL, 
@@ -2932,6 +3231,11 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
         return NULL;
     }
     aliases = malloc(sizeof(void *));
+    if (aliases == NULL) {
+        free_vidtty_arguments(arguments);
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return NULL;
+    }
     aliases[0] = "d";
     if ((failed = add_new_vidtty_argument(
             arguments, "dump", 2, dump_frames, 
@@ -2943,6 +3247,11 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
         return NULL;
     }
     aliases = malloc(sizeof(void *));
+    if (aliases == NULL) {
+        free_vidtty_arguments(arguments);
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return NULL;
+    }
     aliases[0] = "t";
     if ((failed = add_new_vidtty_argument(
             arguments, "tty", 1, NULL, 
@@ -2954,9 +3263,19 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
         return NULL;
     }
     aliases = malloc(2*sizeof(void *));
+    if (aliases == NULL) {
+        free_vidtty_arguments(arguments);
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return NULL;
+    }
     aliases[0] = "s";
     aliases[1] = "video-size";
     uint32_t **options_size = malloc(2*sizeof(void *));
+    if (options_size == NULL) {
+        free_vidtty_arguments(arguments);
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return NULL;
+    }
     options_size[0] = &options->columns;
     options_size[1] = &options->lines;
     if ((failed = add_new_vidtty_argument(
@@ -2969,6 +3288,11 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
         return NULL;
     }
     aliases = malloc(sizeof(void *));
+    if (aliases == NULL) {
+        free_vidtty_arguments(arguments);
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return NULL;
+    }
     aliases[0] = "width";
     if ((failed = add_new_vidtty_argument(
             arguments, "columns", 1, NULL, 
@@ -2980,6 +3304,11 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
         return NULL;
     }
     aliases = malloc(sizeof(void *));
+    if (aliases == NULL) {
+        free_vidtty_arguments(arguments);
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return NULL;
+    }
     aliases[0] = "height";
     if ((failed = add_new_vidtty_argument(
             arguments, "lines", 1, NULL, 
@@ -2991,6 +3320,11 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
         return NULL;
     }
     aliases = malloc(sizeof(void *));
+    if (aliases == NULL) {
+        free_vidtty_arguments(arguments);
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return NULL;
+    }
     aliases[0] = "i";
     if ((failed = add_new_vidtty_argument(
             arguments, "info", 2, vidtxt_info, 
@@ -3002,6 +3336,11 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
         return NULL;
     }
     aliases = malloc(sizeof(void *));
+    if (aliases == NULL) {
+        free_vidtty_arguments(arguments);
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return NULL;
+    }
     aliases[0] = "h";
     if ((failed = add_new_vidtty_argument(
             arguments, "help", 2, print_help, 
@@ -3023,9 +3362,13 @@ int32_t main(int32_t argc, char *argv[]) {
     }
     av_log_set_level(AV_LOG_ERROR);
     VIDTTYOptions *options = calloc(1, sizeof(VIDTTYOptions));
+    if (options == NULL) {
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return 1;
+    }
     VIDTTYArguments *arguments = initialise_arguments(options);
     if (arguments == NULL) {
-        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: One or more agrument failed to initialise\n");
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: One or more agruments failed to initialise\n");
         return 1;
     }
     options->arguments = arguments;
@@ -3127,6 +3470,12 @@ int32_t main(int32_t argc, char *argv[]) {
                         uint32_t option_size;
                         for (option_size = 0; argv[argi+1][option_size] != '\0'; option_size++);
                         char *option_buffer = malloc(option_size);
+                        if (option_buffer == NULL) {
+                            free(options);
+                            free_vidtty_arguments(arguments);
+                            fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                            return 1;
+                        }
                         int32_t arg_offset = 0;
                         for (int32_t idx = 0; argv[argi+1][idx] != '\0'; idx++) {
                             if ((argv[argi+1][idx] | 32) == 'x') {
