@@ -54,7 +54,7 @@
 
 #define PROGRAM_NAME "vidtty"
 #define VERSION "2.0.0b1"
-#define COPYRIGHT "Copyright (C) 2025"
+#define COPYRIGHT "Copyright (C) 2026"
 #define LICENSE "MIT"
 #define AUTHOR "Revnoplex"
 #define VIDTXT_HEADER_SIZE 64
