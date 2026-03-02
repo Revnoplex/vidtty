@@ -1,0 +1,11 @@
+autoconf
+automake
+gcc
+ncurses-devel
+SDL3-devel
+ffmpeg-8-libavformat-devel
+ffmpeg-8-libswscale-devel
+
+# note: video codecs will not work with opensuse by default. you will need to install them with
+# sudo zypper install opi
+# sudo opi codecs
