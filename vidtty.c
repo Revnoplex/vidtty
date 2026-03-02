@@ -1,4 +1,3 @@
-#include <bits/types.h>
 #include <libavutil/log.h>
 #include <libavutil/rational.h>
 #include <stdio.h>
