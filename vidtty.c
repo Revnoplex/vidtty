@@ -2296,6 +2296,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
     uint64_t pre_duration;
     double numerator;
     double denominator;
+    int read_frame_status;
     int entered_loop;
 #if SDL_VERSION_ATLEAST(3, 0, 0)
     SDL_AudioStream *stream = NULL;
@@ -2449,7 +2450,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         printf("Writing Audio Frames...\r");
         fflush(stdout);
         entered_loop = 0;
-        while ((status = av_read_frame(avfmt_ctx, audio_pkt)) >= 0) {
+        while ((read_frame_status = av_read_frame(avfmt_ctx, audio_pkt)) >= 0) {
             entered_loop = 1;
             if (audio_pkt->stream_index != audio_idx) {
                 av_packet_unref(audio_pkt);
@@ -2596,13 +2597,8 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         avcodec_free_context(&ad_ctx);
         ad_ctx = NULL;
 
-        if (status == AVERROR_EOF) {
-            if (!entered_loop) {
-                fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to read video audio frames: Frames not found\n");
-            } else {
-                status = 0;
-            }
-        } else if (status < 0 && status != AVERROR_EOF) {
+        if (read_frame_status < 0 && read_frame_status != AVERROR_EOF) {
+            status = read_frame_status;
             fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to read audio frames: %s\n", av_err2str(status));
             goto cleanup;
         }
@@ -2885,7 +2881,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         wav_data = NULL;
     }
     entered_loop = 0;
-    while ((status = av_read_frame(avfmt_ctx, video_pkt)) >= 0) {
+    while ((read_frame_status = av_read_frame(avfmt_ctx, video_pkt)) >= 0) {
         entered_loop = 1;
         if (ioctl(curses_fd, TIOCGWINSZ, &term_size) == -1) {
             status = -1;
@@ -3103,16 +3099,14 @@ loop_cleanup:
             goto cleanup;
         }
     }
-    if (status == AVERROR_EOF) {
-        if (!entered_loop) {
-            fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to read video audio frames: Frames not found\n");
-        } else {
-            status = 0;
-        }
-    } else if (status < 0 && status != AVERROR_EOF) {
+    if (read_frame_status < 0 && read_frame_status != AVERROR_EOF) {
+        status = read_frame_status;
         fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to read video frames: %s\n", av_err2str(status));
     }
-    
+    if (!entered_loop) {
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to read video frames: Frames not found\n");
+        status = read_frame_status;
+    }
     
 
     
