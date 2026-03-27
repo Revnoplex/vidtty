@@ -243,6 +243,42 @@ VIDTXTInfo *open_vidtxt(char *filename) {
     return vidtxt_info;
 }
 
+uint8_t *read_stdin(int omit_newline) {
+    ssize_t current_read = 0;
+    size_t chunk_size = 4096, pipe_size = 0;
+    uint8_t *pipe_buffer = malloc(chunk_size);
+    if (pipe_buffer == NULL) {
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+        return NULL;
+    }
+    
+    while ((current_read = read(STDIN_FILENO, pipe_buffer + pipe_size, chunk_size - pipe_size)) > 0) {
+        pipe_size += current_read;
+        
+        if (chunk_size - pipe_size == 0) {
+            chunk_size *= 2;
+            uint8_t *t = realloc(pipe_buffer, chunk_size);
+            if (t == NULL) {
+                free(pipe_buffer);
+                fprintf(stderr, "\x1b[1;31mError\x1b[0m: Memory allocation error: %s\n", strerror(errno));
+                return NULL;
+            }
+            pipe_buffer = t;
+        }
+    }
+
+    if (current_read < 0) {
+        fprintf(stderr, "\x1b[1;31mError\x1b[0m: Reading Pipe Failed: %s\n", strerror(errno));
+        free(pipe_buffer);
+        return NULL;
+    }
+    if (pipe_size && omit_newline && pipe_buffer[pipe_size-1] == '\n') {
+        pipe_buffer[pipe_size-1] = '\0';
+    }
+    pipe_buffer[pipe_size] = '\0';
+    return pipe_buffer;
+}
+
 int32_t int_str_asprintf(char **restrict ptr, const char *restrict fmt, int32_t d, char *s) {
     // format string must contain exactly one 32-bit integer followed by exactly char ptr 
     // array or undefined behavior may occur
@@ -2260,6 +2296,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
     uint64_t pre_duration;
     double numerator;
     double denominator;
+    int entered_loop;
 #if SDL_VERSION_ATLEAST(3, 0, 0)
     SDL_AudioStream *stream = NULL;
 #else
@@ -2411,7 +2448,9 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         }
         printf("Writing Audio Frames...\r");
         fflush(stdout);
+        entered_loop = 0;
         while ((status = av_read_frame(avfmt_ctx, audio_pkt)) >= 0) {
+            entered_loop = 1;
             if (audio_pkt->stream_index != audio_idx) {
                 av_packet_unref(audio_pkt);
                 continue;
@@ -2556,6 +2595,21 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         swr_ctx = NULL;
         avcodec_free_context(&ad_ctx);
         ad_ctx = NULL;
+
+        if (status == AVERROR_EOF) {
+            if (!entered_loop) {
+                fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to read video audio frames: Frames not found\n");
+            } else {
+                status = 0;
+            }
+        } else if (status < 0 && status != AVERROR_EOF) {
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to read audio frames: %s\n", av_err2str(status));
+            goto cleanup;
+        }
+
+        if (!entered_loop) {
+            fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to read audio frames: Frames not found\n");
+        }
        
         if (ioctl(1, TIOCGWINSZ, &term_size) == -1) {
             status = -1;
@@ -2830,7 +2884,9 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
         free(wav_data);
         wav_data = NULL;
     }
-    while (av_read_frame(avfmt_ctx, video_pkt) >= 0) {
+    entered_loop = 0;
+    while ((status = av_read_frame(avfmt_ctx, video_pkt)) >= 0) {
+        entered_loop = 1;
         if (ioctl(curses_fd, TIOCGWINSZ, &term_size) == -1) {
             status = -1;
             int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Could't get terminal size: ioctl error %d: %s\n", errno, strerror(errno));
@@ -2864,7 +2920,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
 
         if (video_pkt->stream_index == video_idx) {
             if ((loop_status = avcodec_send_packet(vd_ctx, video_pkt)) < 0) {
-                int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Failed to send packet: FFmpeg error 0x%02x: %s\n", status, av_err2str(status));
+                int_str_asprintf(&queued_err_msg, "\x1b[1;31mFatal\x1b[0m: Failed to send packet: FFmpeg error 0x%02x: %s\n", loop_status, av_err2str(loop_status));
                 break_condition = 1;
                 goto loop_cleanup;
             }
@@ -3047,6 +3103,17 @@ loop_cleanup:
             goto cleanup;
         }
     }
+    if (status == AVERROR_EOF) {
+        if (!entered_loop) {
+            fprintf(stderr, "\x1b[1;31mError\x1b[0m: Failed to read video audio frames: Frames not found\n");
+        } else {
+            status = 0;
+        }
+    } else if (status < 0 && status != AVERROR_EOF) {
+        fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Failed to read video frames: %s\n", av_err2str(status));
+    }
+    
+    
 
     
 cleanup:
@@ -3356,8 +3423,12 @@ VIDTTYArguments *initialise_arguments(VIDTTYOptions *options) {
 
 int32_t main(int32_t argc, char *argv[]) {
     printf("%s %s\n%s %s\n", PROGRAM_NAME, VERSION, COPYRIGHT, AUTHOR);
-    if (argc < 2) {
+    struct stat sb;
+    int filename_is_heap = 0;
+    int is_pipe = fstat(STDIN_FILENO, &sb) == 0 && (S_ISFIFO(sb.st_mode) || S_ISREG(sb.st_mode));
+    if (argc < 2 && !is_pipe) {
         printf("Not enough arguments! Try %s --help for usage.\n", PROGRAM_NAME);
+        return 1;
     }
     av_log_set_level(AV_LOG_ERROR);
     VIDTTYOptions *options = calloc(1, sizeof(VIDTTYOptions));
@@ -3512,10 +3583,19 @@ int32_t main(int32_t argc, char *argv[]) {
         }
     }
     if (filename == NULL && default_call != print_help) {
-        printf("Missing filename! Try %s --help for usage.\n", PROGRAM_NAME);
-        free(options);
-        free_vidtty_arguments(arguments);
-        return 1;
+        if (!is_pipe) {
+            printf("Missing filename! Try %s --help for usage.\n", PROGRAM_NAME);
+            free(options);
+            free_vidtty_arguments(arguments);
+            return 1;
+        }
+        uint8_t *pipe_buffer = read_stdin( 1);
+        if (pipe_buffer == NULL) {
+            fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: An error occured while reading stdin: %s\n", strerror(errno));
+            return 1;
+        }
+        filename = (char *) pipe_buffer;
+        filename_is_heap = 1;
     }
     if (default_call == file_print_frames) {
         uint64_t sig_value = 0;
@@ -3524,6 +3604,9 @@ int32_t main(int32_t argc, char *argv[]) {
             FILE *fp = fopen(filename, "rb");
             if (fp == NULL) {
                 fprintf(stderr, "\x1b[1;31mFatal\x1b[0m: Couldn't open %s: %s\n", filename, strerror(errno));
+                 if (filename_is_heap) {
+                    free(filename);
+                }
                 free(options);
                 free_vidtty_arguments(arguments);
                 return 1;
@@ -3534,8 +3617,12 @@ int32_t main(int32_t argc, char *argv[]) {
         if (is_url || be64toh(sig_value) != 0x5649445458540000) {
             default_call = render_frames;
         }
+        default_call = render_frames;
     }
     status = default_call(filename, options);
+    if (filename_is_heap) {
+        free(filename);
+    }
     free(options);
     free_vidtty_arguments(arguments);
     return status;
