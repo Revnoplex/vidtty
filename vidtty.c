@@ -106,8 +106,8 @@ typedef struct {
     void *associated_option;
     // The VIDTTYOptions associated with the argument.
     int8_t associated_typedef;
-     /*
-    associated_typedef is the value type for a type 2 option.
+    /*
+    associated_typedef is the value type for a type 1 option.
     Types:
     0. Signed Integer
     1. Unsigned Inteter
