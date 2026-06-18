@@ -711,7 +711,7 @@ int32_t file_print_frames(char *filename, VIDTTYOptions *options) {
                         prefix, term_size.ws_col+1,
                         "Writing Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
                         frame_count, nb_frames, numerator/denominator,
-                        (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
+                        (uint32_t) floor(time_left / 3600), (uint32_t) floor(fmod(time_left, 3600) / 60), fmod(time_left, 60)
                     );
                     suffix = malloc(SUFFIX_MAX_SIZE);
                     if (suffix == NULL) {
@@ -1091,7 +1091,7 @@ ffmpeg_cleanup:
             int32_t prefix_size = snprintf(
                 prefix, curr_term_cols+1,
                 "[Frame: (required,drawn,sync,rate): (%lu,%lu,%ld,%.2lf), %02u:%02u:%06.3lf]", estimated_frame, frame_num, sync, draw_rate,
-                (uint32_t) floor(time_position / 3600), (uint32_t) floor(time_position / 60), fmod(time_position, 60)
+                (uint32_t) floor(time_position / 3600), (uint32_t) floor(fmod(time_position, 3600) / 60), fmod(time_position, 60)
             );
             char *suffix = malloc(curr_term_cols);
             if (suffix == NULL) {
@@ -1100,7 +1100,7 @@ ffmpeg_cleanup:
                 break;
             }
             int32_t suffix_size = snprintf(suffix, curr_term_cols, "[%02u:%02u:%06.3lf, %lu Frames, %lu%%]", 
-                (uint32_t) floor(vidtxt_info->duration / 3600), (uint32_t) floor(vidtxt_info->duration / 60), fmod(vidtxt_info->duration, 60),
+                (uint32_t) floor(vidtxt_info->duration / 3600), (uint32_t) floor(fmod(vidtxt_info->duration, 3600) / 60), fmod(vidtxt_info->duration, 60),
                 vidtxt_info->total_frames, 100*frame_num / vidtxt_info->total_frames
             );
             char *full_bar = progress_bar(curr_term_cols-1, prefix, prefix_size, suffix, suffix_size, frame_num, vidtxt_info->total_frames);
@@ -1240,7 +1240,7 @@ int32_t vidtxt_info(char *filename, VIDTTYOptions *options) {
         "Duration: %02u:%02u:%06.3lf \n"
         "Audio Size: %lu bytes\n", 
         filename, vidtxt_info->columns, vidtxt_info->lines, vidtxt_info->fps, vidtxt_info->total_frames, 
-        (uint32_t) floor(vidtxt_info->duration / 3600), (uint32_t) floor(vidtxt_info->duration / 60), fmod(vidtxt_info->duration, 60),
+        (uint32_t) floor(vidtxt_info->duration / 3600), (uint32_t) floor(fmod(vidtxt_info->duration, 3600) / 60), fmod(vidtxt_info->duration, 60),
         vidtxt_info->audio_size
     );
     fclose(vidtxt_info->fp);
@@ -1702,7 +1702,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                         prefix, term_size.ws_col+1,
                         "Writing Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
                         frame_count, nb_frames, numerator/denominator,
-                        (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
+                        (uint32_t) floor(time_left / 3600), (uint32_t) floor(fmod(time_left, 3600) / 60), fmod(time_left, 60)
                     );
                     suffix = malloc(SUFFIX_MAX_SIZE);
                     if (suffix == NULL) {
@@ -2198,7 +2198,7 @@ int32_t dump_frames(char *filename, VIDTTYOptions *options) {
                         prefix, term_size.ws_col+1,
                         "Writing Video Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
                         frame_count+1, nb_frames, numerator/denominator,
-                        (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
+                        (uint32_t) floor(time_left / 3600), (uint32_t) floor(fmod(time_left, 3600) / 60), fmod(time_left, 60)
                     );
                     suffix = malloc(SUFFIX_MAX_SIZE);
                     if (suffix == NULL) {
@@ -2551,7 +2551,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                         prefix, term_size.ws_col+1,
                         "Writing Audio Frame: %lu/%ld Rate: %.1lf/s Time Left: %02u:%02u:%06.3lf", 
                         frame_count, nb_frames, numerator/denominator,
-                        (uint32_t) floor(time_left / 3600), (uint32_t) floor(time_left / 60), fmod(time_left, 60)
+                        (uint32_t) floor(time_left / 3600), (uint32_t) floor(fmod(time_left, 3600) / 60), fmod(time_left, 60)
                     );
                     suffix = malloc(SUFFIX_MAX_SIZE);
                     if (suffix == NULL) {
@@ -2983,7 +2983,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                     int32_t prefix_size = snprintf(
                         prefix, term_size.ws_col+1,
                         "[Frame (required,drawn,sync,rate): (%lu,%lu,%ld,%.2lf), %02u:%02u:%06.3lf]", estimated_frame, frame_count, sync, draw_rate,
-                        (uint32_t) floor(time_position / 3600), (uint32_t) floor(time_position / 60), fmod(time_position, 60)
+                        (uint32_t) floor(time_position / 3600), (uint32_t) floor(fmod(time_position, 3600) / 60), fmod(time_position, 60)
                     );
                     char *suffix = malloc(term_size.ws_col);
                     if (suffix == NULL) {
@@ -2992,7 +2992,7 @@ int32_t render_frames(char *filename, VIDTTYOptions *options) {
                         goto loop_cleanup;
                     }
                     int32_t suffix_size = snprintf(suffix, term_size.ws_col, "[%02u:%02u:%06.3lf, %lu Frames, %lu%%]", 
-                        (uint32_t) floor(duration / 3600), (uint32_t) floor(duration / 60), fmod(duration, 60),
+                        (uint32_t) floor(duration / 3600), (uint32_t) floor(fmod(duration, 3600) / 60), fmod(duration, 60),
                         nb_frames-1, 100*frame_count / (nb_frames-1)
                     );
                     char *full_bar = progress_bar(term_size.ws_col-1, prefix, prefix_size, suffix, suffix_size, frame_count, nb_frames-1);
