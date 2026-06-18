@@ -52,7 +52,7 @@
 #endif
 
 #define PROGRAM_NAME "vidtty"
-#define VERSION "2.0.0b1"
+#define VERSION "2.0.0b2"
 #define COPYRIGHT "Copyright (C) 2026"
 #define LICENSE "MIT"
 #define AUTHOR "Revnoplex"
